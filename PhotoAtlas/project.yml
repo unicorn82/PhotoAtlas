@@ -1,0 +1,23 @@
+name: PhotoAtlas
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "15.2"
+targets:
+  PhotoAtlas:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.2"
+    sources:
+      - path: PhotoAtlas
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.PhotoAtlas
+        SWIFT_VERSION: "5.0"
+    info:
+      path: PhotoAtlas/Info.plist
+      properties:
+        CFBundleDisplayName: PhotoAtlas
+        UILaunchScreen: {}
+        NSPhotoLibraryUsageDescription: "PhotoAtlas needs access to your photo library to index photo dates and locations and show them on an offline map."
+        NSLocationWhenInUseUsageDescription: "Optional: used only to improve your experience; PhotoAtlas primarily reads locations embedded in photos."

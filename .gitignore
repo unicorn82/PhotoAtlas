@@ -1,0 +1,14 @@
+# Ignore everything in this OpenClaw workspace repo by default.
+*
+
+# Keep the iOS app project.
+!PhotoAtlas/
+
+# Keep git metadata files
+!.gitignore
+
+# Re-include everything under PhotoAtlas
+!PhotoAtlas/**
+
+# macOS
+.DS_Store
