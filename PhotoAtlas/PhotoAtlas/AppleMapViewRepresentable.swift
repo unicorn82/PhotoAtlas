@@ -4,7 +4,8 @@ import MapKit
 struct AppleMapViewRepresentable: UIViewRepresentable {
     var clusters: [ClusterBubble]
 
-    var onViewportChanged: (MKCoordinateRegion) -> Void
+    /// `didUserGesture` is true when the region change was triggered by user interaction (pan/zoom).
+    var onViewportChanged: (_ region: MKCoordinateRegion, _ didUserGesture: Bool) -> Void
     var onClusterTapped: (String) -> Void
 
     func makeUIView(context: Context) -> MKMapView {
@@ -47,15 +48,25 @@ struct AppleMapViewRepresentable: UIViewRepresentable {
         var parent: AppleMapViewRepresentable
         private var debounce: DispatchWorkItem?
 
+        private var lastChangeWasUserGesture: Bool = false
+
         init(parent: AppleMapViewRepresentable) {
             self.parent = parent
         }
 
+        func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
+            let isGestureActive = mapView.gestureRecognizers?.contains(where: {
+                $0.state == .began || $0.state == .changed
+            }) ?? false
+            lastChangeWasUserGesture = isGestureActive
+        }
+
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            let didUserGesture = lastChangeWasUserGesture
             debounce?.cancel()
             let item = DispatchWorkItem { [weak self, weak mapView] in
                 guard let self, let mapView else { return }
-                self.parent.onViewportChanged(mapView.region)
+                self.parent.onViewportChanged(mapView.region, didUserGesture)
             }
             debounce = item
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: item)

@@ -125,6 +125,24 @@ actor SQLiteStore {
         }
     }
 
+    /// Latest time we imported/indexed any photo into the DB.
+    /// Use this to drive incremental indexing on next app launch.
+    func latestImportedTs() throws -> Double? {
+        guard let db = db else { throw SQLiteError.notOpen }
+
+        let sql = "SELECT MAX(imported_ts) FROM photos;"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+            throw SQLiteError.prepareFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        if sqlite3_column_type(stmt, 0) == SQLITE_NULL { return nil }
+        return sqlite3_column_double(stmt, 0)
+    }
+
     func upsert(_ record: PhotoRecord, importedTs: Double = Date().timeIntervalSince1970) throws {
         guard let db = db else { throw SQLiteError.notOpen }
 

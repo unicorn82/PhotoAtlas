@@ -10,7 +10,8 @@ struct OfflineMapViewRepresentable: UIViewRepresentable {
     var desiredRegion: MKCoordinateRegion?
     var onAppliedDesiredRegion: () -> Void
 
-    var onViewportChanged: (MKCoordinateRegion) -> Void
+    /// `didUserGesture` is true when the region change was triggered by user interaction (pan/zoom).
+    var onViewportChanged: (_ region: MKCoordinateRegion, _ didUserGesture: Bool) -> Void
     var onClusterTapped: (String) -> Void
 
     func makeUIView(context: Context) -> MKMapView {
@@ -57,16 +58,28 @@ struct OfflineMapViewRepresentable: UIViewRepresentable {
         var parent: OfflineMapViewRepresentable
         private var debounce: DispatchWorkItem?
 
+        /// Tracks whether the latest region change is user-driven (pan/zoom) vs programmatic.
+        private var lastChangeWasUserGesture: Bool = false
+
         init(parent: OfflineMapViewRepresentable) {
             self.parent = parent
         }
 
+        func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
+            // Heuristic: if any gesture recognizer is active, treat as user gesture.
+            let isGestureActive = mapView.gestureRecognizers?.contains(where: {
+                $0.state == .began || $0.state == .changed
+            }) ?? false
+            lastChangeWasUserGesture = isGestureActive
+        }
+
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            let didUserGesture = lastChangeWasUserGesture
             debounce?.cancel()
             let item = DispatchWorkItem { [weak self, weak mapView] in
                 guard let self = self else { return }
                 guard let mapView = mapView else { return }
-                self.parent.onViewportChanged(mapView.region)
+                self.parent.onViewportChanged(mapView.region, didUserGesture)
             }
             debounce = item
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: item)

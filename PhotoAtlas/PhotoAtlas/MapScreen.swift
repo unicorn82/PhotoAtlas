@@ -17,10 +17,19 @@ struct MapScreen: View {
     @State private var navCluster: NavCluster?
     @State private var isMenuPresented: Bool = false
 
+    // Pin navigation (ordered by photo count, within current zoom/precision)
+    @State private var selectedClusterId: String? = nil
+
     @State private var desiredRegion: MKCoordinateRegion? = nil
     @StateObject private var userLocation = UserLocationManager()
 
     @State private var canFocusPhotos: Bool = false
+
+    @State private var showPhotosPermissionPrimer: Bool = false
+
+    /// Prevent automatic re-focusing after the user has manually navigated the map.
+    @State private var didInitialAutoFocus: Bool = false
+    @State private var userHasManuallyFocused: Bool = false
 
     var body: some View {
         NavigationView {
@@ -32,18 +41,29 @@ struct MapScreen: View {
                         // Clear so we don’t re-apply every updateUIView.
                         desiredRegion = nil
                     },
-                    onViewportChanged: { region in
+                    onViewportChanged: { region, didUserGesture in
                         lastRegion = region
+
+                        if didUserGesture {
+                            userHasManuallyFocused = true
+                        }
+
                         let p = precisionForRegion(region)
                         if p != precision { precision = p }
                         Task { await refreshClusters(region: region) }
                     },
                     onClusterTapped: { key in
+                        // User intent: keep map where they are.
+                        userHasManuallyFocused = true
+                        selectedClusterId = key
                         navCluster = NavCluster(key: key, precision: precision)
                     }
                 )
                 // full screen map
                 .ignoresSafeArea()
+
+                // Pin navigation overlay (prev/next)
+                pinNavigator
 
                 deniedOverlay
             }
@@ -66,15 +86,8 @@ struct MapScreen: View {
             }
             .sheet(isPresented: $isMenuPresented) {
                 MapActionsSheet(
-                    isIndexing: model.isIndexing,
                     summary: model.lastIndexSummary,
                     canFocusPhotos: canFocusPhotos,
-                    onIndex: {
-                        Task {
-                            await model.indexNow()
-                            await refreshClusters(region: lastRegion)
-                        }
-                    },
                     onRefresh: {
                         Task { await refreshClusters(region: lastRegion) }
                     },
@@ -107,12 +120,41 @@ struct MapScreen: View {
                 )
                 .hidden()
             )
+            .sheet(isPresented: $showPhotosPermissionPrimer) {
+                PhotosPermissionPrimerSheet(
+                    onContinue: {
+                        Task {
+                            await model.requestPhotosAccess()
+                            await model.autoIndexIfPossible()
+                            await refreshClusters(region: lastRegion)
+                        }
+                    },
+                    onNotNow: {
+                        // User can still explore the map; pins may be empty until access granted.
+                    }
+                )
+            }
             .task {
                 model.refreshAuthorization()
+
+                // Show primer BEFORE we prompt for Photos permission.
+                if model.authorization == .notDetermined {
+                    showPhotosPermissionPrimer = true
+                } else {
+                    await model.autoIndexIfPossible()
+                }
+
                 await refreshClusters(region: lastRegion)
 
                 // Ask for user location early; if denied, we’ll fall back to “photos centroid”.
-                await requestInitialFocusIfNeeded()
+                // But:
+                // - only do this once
+                // - never override a user-chosen focus
+                // - never prompt for Location permission while we're still asking for Photos permission
+                if !didInitialAutoFocus && !userHasManuallyFocused && model.authorization != .notDetermined {
+                    didInitialAutoFocus = true
+                    await requestInitialFocusIfNeeded()
+                }
             }
         }
     }
@@ -144,6 +186,49 @@ struct MapScreen: View {
         }
     }
 
+    private var pinNavigator: some View {
+        VStack {
+            Spacer()
+
+            HStack {
+                Spacer()
+
+                HStack(spacing: 10) {
+                    Button {
+                        userHasManuallyFocused = true
+                        navigatePins(step: -1)
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.headline)
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.regularMaterial)
+                    .clipShape(Circle())
+                    .disabled(clusters.isEmpty)
+
+                    Button {
+                        userHasManuallyFocused = true
+                        navigatePins(step: 1)
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.headline)
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.regularMaterial)
+                    .clipShape(Circle())
+                    .disabled(clusters.isEmpty)
+                }
+                .padding(.trailing, 14)
+                .padding(.bottom, 18)
+            }
+        }
+        .allowsHitTesting(!clusters.isEmpty)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Pin navigator")
+    }
+
     private func refreshClusters(region: MKCoordinateRegion) async {
         // IMPORTANT:
         // - For city-level, we filter to the current viewport for performance and relevance.
@@ -155,6 +240,18 @@ struct MapScreen: View {
             clusters = try await model.db.clusters(in: bbox, precision: precision)
         } catch {
             clusters = []
+        }
+
+        // Keep selection stable if possible; otherwise pick the first (highest-count) cluster.
+        if !clusters.isEmpty {
+            if let selectedId = selectedClusterId,
+               clusters.contains(where: { $0.id == selectedId }) {
+                // keep
+            } else {
+                selectedClusterId = clusters.first?.id
+            }
+        } else {
+            selectedClusterId = nil
         }
 
         // Update whether we can focus on photos (any GPS data indexed).
@@ -218,7 +315,7 @@ struct MapScreen: View {
                 )
                 model.lastIndexSummary = String(format: "Focused on photos: %.4f, %.4f", centroid.latitude, centroid.longitude)
             } else {
-                model.lastIndexSummary = "No GPS photos indexed yet — can’t Focus Photos. Import photos with location and run Indexing."
+                model.lastIndexSummary = "No GPS photos indexed yet — can’t Focus Photos. Import photos with location and reopen the app."
             }
         } catch {
             model.lastIndexSummary = "Focus Photos failed: \(error.localizedDescription)"
@@ -229,7 +326,41 @@ struct MapScreen: View {
         desiredRegion = MKCoordinateRegion(center: center, span: span)
         lastRegion = desiredRegion ?? lastRegion
     }
+
+    // MARK: - Pin navigation
+
+    /// Navigate pins in descending photo-count order for the *current* precision/viewport.
+    /// Keeps the user's current zoom (span) and just pans the center.
+    private func navigatePins(step: Int) {
+        guard !clusters.isEmpty else { return }
+
+        let currentIndex: Int = {
+            if let selectedId = selectedClusterId,
+               let idx = clusters.firstIndex(where: { $0.id == selectedId }) {
+                return idx
+            }
+            return 0
+        }()
+
+        let nextIndex: Int = {
+            let n = clusters.count
+            guard n > 0 else { return 0 }
+            // Wrap around (handles negative step too)
+            return (currentIndex + step % n + n) % n
+        }()
+
+        let next = clusters[nextIndex]
+        selectedClusterId = next.id
+
+        let center = CLLocationCoordinate2D(latitude: next.centerLat, longitude: next.centerLon)
+        setDesiredRegion(center: center, span: lastRegion.span)
+
+        model.lastIndexSummary = "\(next.title) · \(next.count) photos"
+    }
+
+    // When we programmatically set region due to user intent (pin nav), treat as manual focus.
 }
+
 
 @MainActor
 final class UserLocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
@@ -307,14 +438,69 @@ struct NavCluster: Identifiable {
     var id: String { "\(key)|\(precision)" }
 }
 
+private struct PhotosPermissionPrimerSheet: View {
+    let onContinue: () -> Void
+    let onNotNow: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Allow Photos Access")
+                    .font(.title2.bold())
+
+                Text("Footprint Atlas builds your personal photo map by reading photo date + embedded GPS.")
+                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("On-device only. We do not upload your photo library.", systemImage: "iphone")
+                    Label("No account. No cloud. No selling or sharing of your photos.", systemImage: "lock.fill")
+                    Label("You can change this anytime in Settings.", systemImage: "gearshape")
+                }
+                .font(.subheadline)
+
+                Divider().padding(.vertical, 2)
+
+                Text("Recommended: Full Access")
+                    .font(.headline)
+
+                Text("Choosing Full Access lets us index all photos with locations. If you choose Limited Access, pins may be missing.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button {
+                    onContinue()
+                    dismiss()
+                } label: {
+                    Text("Continue")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    onNotNow()
+                    dismiss()
+                } label: {
+                    Text("Not Now")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(16)
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
 private struct MapActionsSheet: View {
-    let isIndexing: Bool
     let summary: String?
 
     /// Whether there are any indexed GPS photos we can focus on.
     let canFocusPhotos: Bool
 
-    let onIndex: () -> Void
     let onRefresh: () -> Void
     let onFocusMe: () -> Void
     let onFocusPhotos: () -> Void
@@ -328,20 +514,6 @@ private struct MapActionsSheet: View {
         NavigationView {
             List {
                 Section {
-                    Button {
-                        onIndex()
-                        dismiss()
-                    } label: {
-                        HStack {
-                            Text(isIndexing ? "Indexing…" : "Start Indexing")
-                            Spacer()
-                            if isIndexing {
-                                ProgressView().controlSize(.small)
-                            }
-                        }
-                    }
-                    .disabled(isIndexing)
-
                     Button("Refresh Pins") {
                         onRefresh()
                         dismiss()
@@ -373,7 +545,7 @@ private struct MapActionsSheet: View {
                     if let summary = summary {
                         Text(summary)
                     } else {
-                        Text("Index photos to populate the map.")
+                        Text("Photos with GPS will appear automatically after access is granted.")
                             .foregroundStyle(.secondary)
                     }
 

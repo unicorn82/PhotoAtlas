@@ -5,11 +5,13 @@ import UIKit
 @MainActor
 final class AppModel: ObservableObject {
     @Published var authorization: PHAuthorizationStatus = .notDetermined
-    @Published var isIndexing: Bool = false
     @Published var lastIndexSummary: String? = nil
 
     let db: SQLiteStore
     let indexer: PhotosIndexer
+
+    private let defaults = UserDefaults.standard
+    private let didInitialIndexKey = "didInitialPhotoIndex"
 
     init() {
         self.db = SQLiteStore()
@@ -21,14 +23,10 @@ final class AppModel: ObservableObject {
         authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     }
 
-    func requestPhotosAccessIfNeeded() async {
-        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        if status == .notDetermined {
-            let newStatus = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-            authorization = newStatus
-        } else {
-            authorization = status
-        }
+    /// Actively prompt the user for Photos permission (shows the system dialog).
+    func requestPhotosAccess() async {
+        let newStatus = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        authorization = newStatus
     }
 
     func openSettings() {
@@ -36,21 +34,46 @@ final class AppModel: ObservableObject {
         UIApplication.shared.open(url)
     }
 
-    /// One-time background-ish index. For MVP, we do a full wipe+reindex when you press the button.
-    /// (We can switch to resumable incremental later.)
-    func indexNow() async {
-        isIndexing = true
-        defer { isIndexing = false }
-
+    /// Auto-run indexing:
+    /// - on app launch
+    /// - immediately after the user grants Photos permission
+    ///
+    /// Behavior:
+    /// - First time (no prior index): do a full reindex.
+    /// - Subsequent runs: incremental index based on DB latest imported timestamp.
+    func autoIndexIfPossible() async {
         do {
-            await requestPhotosAccessIfNeeded()
-            guard authorization == .authorized || authorization == .limited else {
-                lastIndexSummary = "Photos access not granted. Tap Grant Access to enable indexing."
+            refreshAuthorization()
+
+            // IMPORTANT: Don't trigger the system permission dialog from here.
+            // We show an in-app primer first, then call `requestPhotosAccess()`.
+            guard authorization != .notDetermined else {
+                lastIndexSummary = "Photos access needed to show your pins."
                 return
             }
 
-            let result = try await indexer.fullReindex()
-            lastIndexSummary = "Indexed \(result.assetsIndexed) assets (\(result.withLocation) with GPS)."
+            guard authorization == .authorized || authorization == .limited else {
+                lastIndexSummary = "Photos access not granted."
+                return
+            }
+
+            let didInitial = defaults.bool(forKey: didInitialIndexKey)
+
+            let result: IndexResult
+            if !didInitial {
+                result = try await indexer.fullReindex()
+                defaults.set(true, forKey: didInitialIndexKey)
+                lastIndexSummary = "Indexed \(result.assetsIndexed) assets (\(result.withLocation) with GPS)."
+            } else {
+                if let maxImportedTs = try await db.latestImportedTs() {
+                    let since = Date(timeIntervalSince1970: maxImportedTs)
+                    result = try await indexer.incrementalIndex(since: since)
+                    lastIndexSummary = "Indexed \(result.assetsIndexed) new/changed assets (\(result.withLocation) with GPS)."
+                } else {
+                    result = try await indexer.fullReindex()
+                    lastIndexSummary = "Indexed \(result.assetsIndexed) assets (\(result.withLocation) with GPS)."
+                }
+            }
         } catch {
             lastIndexSummary = "Index failed: \(error.localizedDescription)"
         }
