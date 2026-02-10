@@ -12,3 +12,7 @@
 
 # macOS
 .DS_Store
+
+# Xcode user-specific state (never commit)
+PhotoAtlas/**/xcuserdata/
+PhotoAtlas/**/*.xcuserstate

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		F0A1B2C3D4E5F60718293A4C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F0A1B2C3D4E5F60718293A4B /* Assets.xcassets */; };
+		DEFA017C5A7E111122223334 /* default.csv in Resources */ = {isa = PBXBuildFile; fileRef = DEFA017C5A7E111122223333 /* default.csv */; };
 		0579B752F587FBD5520196A0 /* OfflineMapUIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E20AC10AF099D7D5FD6ACB4 /* OfflineMapUIView.swift */; };
 		33D1E1D021268C6411A26E61 /* SQLiteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25082D2A477F29333EFCB245 /* SQLiteStore.swift */; };
 		391C3F35FE6D0C0D4FA11F33 /* PhotosIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80CF9F94EA4BEDC1B20279AF /* PhotosIndexer.swift */; };
@@ -33,6 +34,7 @@
 		4E2CE3E9A67619AC823B0A76 /* PhotoDetailScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoDetailScreen.swift; sourceTree = "<group>"; };
 		4FA3719E502551F682CF9438 /* PhotoAtlas.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PhotoAtlas.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		52F7B87E8263062D33FB05E3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		DEFA017C5A7E111122223333 /* default.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = default.csv; sourceTree = "<group>"; };
 		7999082A9FF4E559C1A1560F /* DateFormatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateFormatters.swift; sourceTree = "<group>"; };
 		80CF9F94EA4BEDC1B20279AF /* PhotosIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotosIndexer.swift; sourceTree = "<group>"; };
 		83A3D18C0DDF5B62628500EC /* ClusterTimelineScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterTimelineScreen.swift; sourceTree = "<group>"; };
@@ -70,6 +72,7 @@
 				944B397A7EB2DDB5B7E1D92E /* Geo.swift */,
 				02C0FA5A6739A8923990A17A /* Geohash.swift */,
 				52F7B87E8263062D33FB05E3 /* Info.plist */,
+				DEFA017C5A7E111122223333 /* default.csv */,
 				8B33251AA67116739BC38056 /* MapScreen.swift */,
 				4E20AC10AF099D7D5FD6ACB4 /* OfflineMapUIView.swift */,
 				D982AFFDB70441B4AAE3EC02 /* OfflineMapViewRepresentable.swift */,
@@ -131,6 +134,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F0A1B2C3D4E5F60718293A4C /* Assets.xcassets in Resources */,
+				DEFA017C5A7E111122223334 /* default.csv in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

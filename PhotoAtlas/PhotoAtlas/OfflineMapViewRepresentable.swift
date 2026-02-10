@@ -39,17 +39,12 @@ struct OfflineMapViewRepresentable: UIViewRepresentable {
             onAppliedDesiredRegion()
         }
 
-        let existing = map.annotations.filter { !($0 is MKUserLocation) }
-        map.removeAnnotations(existing)
-
-        map.addAnnotations(clusters.map { bubble in
-            ClusterAnnotation(
-                key: bubble.id,
-                title: bubble.title,
-                count: bubble.count,
-                coordinate: CLLocationCoordinate2D(latitude: bubble.centerLat, longitude: bubble.centerLon)
-            )
-        })
+        // PERFORMANCE:
+        // Avoid removing/re-adding all annotations every update. That creates visible lag (pins "pop in")
+        // and triggers lots of view churn while panning/zooming.
+        //
+        // Instead, diff by `key` and only add/remove/update what changed.
+        context.coordinator.applyClusters(clusters, to: map)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -61,8 +56,47 @@ struct OfflineMapViewRepresentable: UIViewRepresentable {
         /// Tracks whether the latest region change is user-driven (pan/zoom) vs programmatic.
         private var lastChangeWasUserGesture: Bool = false
 
+        /// Keep a stable set of annotations keyed by cluster id.
+        private var clusterAnnotationsByKey: [String: ClusterAnnotation] = [:]
+
         init(parent: OfflineMapViewRepresentable) {
             self.parent = parent
+        }
+
+        func applyClusters(_ clusters: [ClusterBubble], to map: MKMapView) {
+            // Remove annotations that are no longer present.
+            let nextKeys = Set(clusters.map { $0.id })
+            let existingKeys = Set(clusterAnnotationsByKey.keys)
+            let removedKeys = existingKeys.subtracting(nextKeys)
+            if !removedKeys.isEmpty {
+                let removed = removedKeys.compactMap { clusterAnnotationsByKey[$0] }
+                removed.forEach { clusterAnnotationsByKey[$0.key] = nil }
+                map.removeAnnotations(removed)
+            }
+
+            // Add/update present annotations.
+            for bubble in clusters {
+                let coord = CLLocationCoordinate2D(latitude: bubble.centerLat, longitude: bubble.centerLon)
+
+                if let ann = clusterAnnotationsByKey[bubble.id] {
+                    // Update in place (keeps the annotation view alive).
+                    let didMove = ann.coordinate.latitude != coord.latitude || ann.coordinate.longitude != coord.longitude
+                    ann.title = bubble.title
+                    ann.count = bubble.count
+                    if didMove {
+                        ann.coordinate = coord
+                    }
+
+                    // Update existing view glyph immediately if it already exists.
+                    if let v = map.view(for: ann) as? MKMarkerAnnotationView {
+                        v.glyphText = formatCount(ann.count)
+                    }
+                } else {
+                    let ann = ClusterAnnotation(key: bubble.id, title: bubble.title, count: bubble.count, coordinate: coord)
+                    clusterAnnotationsByKey[bubble.id] = ann
+                    map.addAnnotation(ann)
+                }
+            }
         }
 
         func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
@@ -116,8 +150,8 @@ struct OfflineMapViewRepresentable: UIViewRepresentable {
 
 final class ClusterAnnotation: NSObject, MKAnnotation {
     let key: String
-    let title: String?
-    let count: Int
+    dynamic var title: String?
+    dynamic var count: Int
     dynamic var coordinate: CLLocationCoordinate2D
 
     init(key: String, title: String?, count: Int, coordinate: CLLocationCoordinate2D) {

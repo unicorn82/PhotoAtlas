@@ -116,6 +116,42 @@ actor SQLiteStore {
         if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
             throw SQLiteError.execFailed(message: String(cString: sqlite3_errmsg(db)))
         }
+
+        // v2: user annotations (favorites + comments)
+        try ensureColumn("is_favorite", alterSQL: "ALTER TABLE photos ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0;")
+        try ensureColumn("comment", alterSQL: "ALTER TABLE photos ADD COLUMN comment TEXT;")
+
+        if sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_photos_favorite ON photos(is_favorite);", nil, nil, nil) != SQLITE_OK {
+            throw SQLiteError.execFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+    }
+
+    private func ensureColumn(_ name: String, alterSQL: String) throws {
+        guard let db = db else { throw SQLiteError.notOpen }
+
+        let sql = "PRAGMA table_info(photos);"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+            throw SQLiteError.prepareFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+
+        var found = false
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            // Column name is at index 1
+            let col = String(cString: sqlite3_column_text(stmt, 1))
+            if col == name {
+                found = true
+                break
+            }
+        }
+
+        if !found {
+            if sqlite3_exec(db, alterSQL, nil, nil, nil) != SQLITE_OK {
+                throw SQLiteError.execFailed(message: String(cString: sqlite3_errmsg(db)))
+            }
+        }
     }
 
     func resetAll() throws {
@@ -158,6 +194,8 @@ actor SQLiteStore {
           city=excluded.city,
           imported_ts=excluded.imported_ts;
         """
+        // NOTE: We intentionally do NOT touch user-generated columns (is_favorite, comment)
+        // during re-indexing/upserts. Those are owned by the user.
 
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
@@ -242,7 +280,7 @@ actor SQLiteStore {
         return out
     }
 
-    func photoIds(inCluster clusterKey: String, precision: ClusterPrecision) throws -> [(localId: String, creationTs: Double?)] {
+    func photoIds(inCluster clusterKey: String, precision: ClusterPrecision) throws -> [(localId: String, creationTs: Double?, isFavorite: Bool, hasComment: Bool)] {
         guard let db = db else { throw SQLiteError.notOpen }
 
         let sql: String
@@ -253,7 +291,10 @@ actor SQLiteStore {
             // clusterKey: country:US
             let code = clusterKey.replacingOccurrences(of: "country:", with: "")
             sql = """
-            SELECT local_id, creation_ts
+            SELECT local_id,
+                   creation_ts,
+                   COALESCE(is_favorite, 0) AS is_favorite,
+                   CASE WHEN comment IS NOT NULL AND LENGTH(TRIM(comment)) > 0 THEN 1 ELSE 0 END AS has_comment
             FROM photos
             WHERE country_code = ?
             ORDER BY creation_ts DESC;
@@ -268,7 +309,10 @@ actor SQLiteStore {
             let code = parts.dropFirst().first.map(String.init) ?? "??"
 
             sql = """
-            SELECT local_id, creation_ts
+            SELECT local_id,
+                   creation_ts,
+                   COALESCE(is_favorite, 0) AS is_favorite,
+                   CASE WHEN comment IS NOT NULL AND LENGTH(TRIM(comment)) > 0 THEN 1 ELSE 0 END AS has_comment
             FROM photos
             WHERE COALESCE(city, '(Unknown)') = ? AND COALESCE(country_code, '??') = ?
             ORDER BY creation_ts DESC;
@@ -286,15 +330,154 @@ actor SQLiteStore {
             sqlite3_bind_text(stmt, Int32(i + 1), b, -1, SQLITE_TRANSIENT)
         }
 
-        var rows: [(String, Double?)] = []
+        var rows: [(String, Double?, Bool, Bool)] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             let id = String(cString: sqlite3_column_text(stmt, 0))
+
             let creation: Double?
             if sqlite3_column_type(stmt, 1) == SQLITE_NULL { creation = nil }
             else { creation = sqlite3_column_double(stmt, 1) }
-            rows.append((id, creation))
+
+            let fav = sqlite3_column_int(stmt, 2) != 0
+            let hasComment = sqlite3_column_int(stmt, 3) != 0
+
+            rows.append((id, creation, fav, hasComment))
         }
         return rows
+    }
+
+    func favoritePhotoIds(inCluster clusterKey: String, precision: ClusterPrecision) throws -> [(localId: String, creationTs: Double?, hasComment: Bool)] {
+        guard let db = db else { throw SQLiteError.notOpen }
+
+        let sql: String
+        let bindings: [String]
+
+        switch precision {
+        case .country:
+            let code = clusterKey.replacingOccurrences(of: "country:", with: "")
+            sql = """
+            SELECT local_id,
+                   creation_ts,
+                   CASE WHEN comment IS NOT NULL AND LENGTH(TRIM(comment)) > 0 THEN 1 ELSE 0 END AS has_comment
+            FROM photos
+            WHERE country_code = ? AND COALESCE(is_favorite, 0) = 1
+            ORDER BY creation_ts DESC;
+            """
+            bindings = [code]
+
+        case .city:
+            let raw = clusterKey.replacingOccurrences(of: "city:", with: "")
+            let parts = raw.split(separator: "|", omittingEmptySubsequences: false)
+            let city = parts.first.map(String.init) ?? "(Unknown)"
+            let code = parts.dropFirst().first.map(String.init) ?? "??"
+
+            sql = """
+            SELECT local_id,
+                   creation_ts,
+                   CASE WHEN comment IS NOT NULL AND LENGTH(TRIM(comment)) > 0 THEN 1 ELSE 0 END AS has_comment
+            FROM photos
+            WHERE COALESCE(city, '(Unknown)') = ? AND COALESCE(country_code, '??') = ?
+              AND COALESCE(is_favorite, 0) = 1
+            ORDER BY creation_ts DESC;
+            """
+            bindings = [city, code]
+        }
+
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+            throw SQLiteError.prepareFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+
+        for (i, b) in bindings.enumerated() {
+            sqlite3_bind_text(stmt, Int32(i + 1), b, -1, SQLITE_TRANSIENT)
+        }
+
+        var rows: [(String, Double?, Bool)] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let id = String(cString: sqlite3_column_text(stmt, 0))
+
+            let creation: Double?
+            if sqlite3_column_type(stmt, 1) == SQLITE_NULL { creation = nil }
+            else { creation = sqlite3_column_double(stmt, 1) }
+
+            let hasComment = sqlite3_column_int(stmt, 2) != 0
+            rows.append((id, creation, hasComment))
+        }
+        return rows
+    }
+
+    func photoUserData(localId: String) throws -> (isFavorite: Bool, comment: String?) {
+        guard let db = db else { throw SQLiteError.notOpen }
+
+        let sql = """
+        SELECT COALESCE(is_favorite, 0) AS is_favorite, comment
+        FROM photos
+        WHERE local_id = ?
+        LIMIT 1;
+        """
+
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+            throw SQLiteError.prepareFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+
+        sqlite3_bind_text(stmt, 1, localId, -1, SQLITE_TRANSIENT)
+
+        guard sqlite3_step(stmt) == SQLITE_ROW else {
+            return (isFavorite: false, comment: nil)
+        }
+
+        let fav = sqlite3_column_int(stmt, 0) != 0
+        let comment: String?
+        if sqlite3_column_type(stmt, 1) == SQLITE_NULL { comment = nil }
+        else { comment = String(cString: sqlite3_column_text(stmt, 1)) }
+
+        return (fav, comment)
+    }
+
+    func setFavorite(localId: String, isFavorite: Bool) throws {
+        guard let db = db else { throw SQLiteError.notOpen }
+
+        let sql = "UPDATE photos SET is_favorite = ? WHERE local_id = ?;"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+            throw SQLiteError.prepareFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+
+        sqlite3_bind_int(stmt, 1, isFavorite ? 1 : 0)
+        sqlite3_bind_text(stmt, 2, localId, -1, SQLITE_TRANSIENT)
+
+        if sqlite3_step(stmt) != SQLITE_DONE {
+            throw SQLiteError.stepFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+    }
+
+    func setComment(localId: String, comment: String?) throws {
+        guard let db = db else { throw SQLiteError.notOpen }
+
+        let sql = "UPDATE photos SET comment = ? WHERE local_id = ?;"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+            throw SQLiteError.prepareFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+
+        let trimmed = comment?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed = trimmed, !trimmed.isEmpty {
+            sqlite3_bind_text(stmt, 1, trimmed, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(stmt, 1)
+        }
+        sqlite3_bind_text(stmt, 2, localId, -1, SQLITE_TRANSIENT)
+
+        if sqlite3_step(stmt) != SQLITE_DONE {
+            throw SQLiteError.stepFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
     }
 
     // MARK: - Binding helpers

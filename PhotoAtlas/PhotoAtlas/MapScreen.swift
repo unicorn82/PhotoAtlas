@@ -25,6 +25,9 @@ struct MapScreen: View {
 
     @State private var canFocusPhotos: Bool = false
 
+    /// Cancels previous cluster queries while the user is actively panning/zooming.
+    @State private var refreshTask: Task<Void, Never>? = nil
+
     @State private var showPhotosPermissionPrimer: Bool = false
 
     /// Prevent automatic re-focusing after the user has manually navigated the map.
@@ -50,7 +53,10 @@ struct MapScreen: View {
 
                         let p = precisionForRegion(region)
                         if p != precision { precision = p }
-                        Task { await refreshClusters(region: region) }
+
+                        // Cancel any in-flight refresh so we don't build a backlog while the user pans/zooms.
+                        refreshTask?.cancel()
+                        refreshTask = Task { await refreshClusters(region: region) }
                     },
                     onClusterTapped: { key in
                         // User intent: keep map where they are.
@@ -78,7 +84,17 @@ struct MapScreen: View {
                     }
                 }
 
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button {
+                        Task {
+                            userHasManuallyFocused = true
+                            await focusMeCityLevel()
+                        }
+                    } label: {
+                        Image(systemName: "location.fill")
+                    }
+                    .accessibilityLabel("Focus Me")
+
                     Text(labelForPrecision(precision))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -230,6 +246,9 @@ struct MapScreen: View {
     }
 
     private func refreshClusters(region: MKCoordinateRegion) async {
+        // If a newer pan/zoom event came in, bail early.
+        if Task.isCancelled { return }
+
         // IMPORTANT:
         // - For city-level, we filter to the current viewport for performance and relevance.
         // - For country-level, we *don’t* filter by viewport bbox; otherwise the count can look wrong
@@ -237,8 +256,11 @@ struct MapScreen: View {
         let bbox: BBox = (precision == .country) ? .world : bboxForRegion(region)
 
         do {
-            clusters = try await model.db.clusters(in: bbox, precision: precision)
+            let next = try await model.db.clusters(in: bbox, precision: precision)
+            if Task.isCancelled { return }
+            clusters = next
         } catch {
+            if Task.isCancelled { return }
             clusters = []
         }
 
@@ -254,12 +276,8 @@ struct MapScreen: View {
             selectedClusterId = nil
         }
 
-        // Update whether we can focus on photos (any GPS data indexed).
-        do {
-            canFocusPhotos = (try await model.db.photosCentroid()) != nil
-        } catch {
-            canFocusPhotos = false
-        }
+        // NOTE: Don't recompute `photosCentroid()` on every viewport tick.
+        // That extra DB query can be noticeable while panning.
     }
 
     private func precisionForRegion(_ r: MKCoordinateRegion) -> ClusterPrecision {
@@ -295,8 +313,9 @@ struct MapScreen: View {
 
     @discardableResult
     private func focusMe() async -> Bool {
-        let coord = await userLocation.requestOneShotLocation()
-        if let coord = coord {
+        let loc = await userLocation.requestOneShotLocation()
+        if let loc = loc {
+            let coord = loc.coordinate
             setDesiredRegion(center: coord, span: MKCoordinateSpan(latitudeDelta: 2.0, longitudeDelta: 2.0))
             model.lastIndexSummary = String(format: "Focused on you: %.4f, %.4f", coord.latitude, coord.longitude)
             return true
@@ -304,6 +323,32 @@ struct MapScreen: View {
 
         model.lastIndexSummary = "Couldn’t get your location. On Simulator: Features → Location → choose a location (e.g., Apple)."
         return false
+    }
+
+    private func focusMeCityLevel() async {
+        let locOpt = await userLocation.requestOneShotLocation()
+        guard let loc = locOpt else {
+            model.lastIndexSummary = "Couldn’t get your location."
+            return
+        }
+
+        let coord = loc.coordinate
+        let accuracy = max(0, loc.horizontalAccuracy)
+
+        // Accuracy-based zoom heuristic.
+        // (If accuracy is invalid/negative, treat as low confidence and zoom wider.)
+        let delta: Double = {
+            if accuracy > 0 && accuracy <= 50 { return 0.08 }      // neighborhood
+            if accuracy > 0 && accuracy <= 200 { return 0.18 }     // city
+            if accuracy > 0 && accuracy <= 1000 { return 0.35 }    // metro
+            return 0.60                                           // wide fallback
+        }()
+
+        setDesiredRegion(center: coord, span: MKCoordinateSpan(latitudeDelta: delta, longitudeDelta: delta))
+        precision = .city
+        model.lastIndexSummary = String(format: "Focused on you: %.4f, %.4f (±%.0fm)", coord.latitude, coord.longitude, accuracy)
+
+        await refreshClusters(region: lastRegion)
     }
 
     private func focusPhotos() async {
@@ -365,20 +410,20 @@ struct MapScreen: View {
 @MainActor
 final class UserLocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
-    private var continuation: CheckedContinuation<CLLocationCoordinate2D?, Never>?
+    private var continuation: CheckedContinuation<CLLocation?, Never>?
 
     override init() {
         super.init()
         manager.delegate = self
     }
 
-    func requestOneShotLocation() async -> CLLocationCoordinate2D? {
+    func requestOneShotLocation() async -> CLLocation? {
         guard CLLocationManager.locationServicesEnabled() else { return nil }
 
         return await withCheckedContinuation { cont in
             self.continuation = cont
 
-            let status = CLLocationManager.authorizationStatus()
+            let status = manager.authorizationStatus
 
             switch status {
             case .notDetermined:
@@ -386,7 +431,7 @@ final class UserLocationManager: NSObject, ObservableObject, CLLocationManagerDe
                 manager.requestWhenInUseAuthorization()
 
             case .authorizedWhenInUse, .authorizedAlways:
-                manager.desiredAccuracy = kCLLocationAccuracyKilometer
+                manager.desiredAccuracy = kCLLocationAccuracyBest
                 manager.requestLocation()
 
             case .denied, .restricted:
@@ -401,7 +446,7 @@ final class UserLocationManager: NSObject, ObservableObject, CLLocationManagerDe
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        continuation?.resume(returning: locations.last?.coordinate)
+        continuation?.resume(returning: locations.last)
         continuation = nil
     }
 
@@ -414,7 +459,7 @@ final class UserLocationManager: NSObject, ObservableObject, CLLocationManagerDe
         // If user just granted permission (incl. “Allow Once”), kick off the one-shot request.
         guard continuation != nil else { return }
 
-        let status = CLLocationManager.authorizationStatus()
+        let status = manager.authorizationStatus
         switch status {
         case .authorizedWhenInUse, .authorizedAlways:
             manager.desiredAccuracy = kCLLocationAccuracyKilometer
@@ -519,7 +564,8 @@ private struct MapActionsSheet: View {
                         dismiss()
                     }
 
-                    let locAuth = CLLocationManager.authorizationStatus()
+                    // Avoid deprecated `CLLocationManager.authorizationStatus()` (iOS 14+).
+                    let locAuth = CLLocationManager().authorizationStatus
                     let canFocusMe = CLLocationManager.locationServicesEnabled() && (locAuth == .notDetermined || locAuth == .authorizedWhenInUse || locAuth == .authorizedAlways)
 
                     Button("Focus Me") {

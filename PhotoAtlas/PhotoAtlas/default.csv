@@ -1,0 +1,3 @@
+# PhotoAtlas bundled fallback resource
+# If your app expects a real CSV schema, replace this placeholder with the correct contents.
+# (Added to help diagnose the on-device log: "Failed to locate resource named \"default.csv\"")
