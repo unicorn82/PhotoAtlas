@@ -10,6 +10,9 @@ targets:
     deploymentTarget: "15.2"
     sources:
       - path: PhotoAtlas
+        excludes:
+          - AppleMapViewRepresentable.swift
+          - GeoIndex.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.PhotoAtlas

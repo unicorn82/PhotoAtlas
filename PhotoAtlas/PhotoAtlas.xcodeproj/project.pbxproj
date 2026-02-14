@@ -7,41 +7,57 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		F0A1B2C3D4E5F60718293A4C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F0A1B2C3D4E5F60718293A4B /* Assets.xcassets */; };
-		DEFA017C5A7E111122223334 /* default.csv in Resources */ = {isa = PBXBuildFile; fileRef = DEFA017C5A7E111122223333 /* default.csv */; };
 		0579B752F587FBD5520196A0 /* OfflineMapUIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E20AC10AF099D7D5FD6ACB4 /* OfflineMapUIView.swift */; };
+		235ADAB6EB7E4DE664E5E042 /* FootprintDiaryCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADC4B99FA04825985388435F /* FootprintDiaryCardView.swift */; };
+		27FD14E60279447B6A63C673 /* default.csv in Resources */ = {isa = PBXBuildFile; fileRef = 0E2C447A4385442660FED67C /* default.csv */; };
 		33D1E1D021268C6411A26E61 /* SQLiteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25082D2A477F29333EFCB245 /* SQLiteStore.swift */; };
 		391C3F35FE6D0C0D4FA11F33 /* PhotosIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80CF9F94EA4BEDC1B20279AF /* PhotosIndexer.swift */; };
+		3D231512CF1A129A56346BEB /* ActivityShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D953F073342E24A148C4F2 /* ActivityShareSheet.swift */; };
 		40ACA87CF686F56736094F6B /* Geohash.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C0FA5A6739A8923990A17A /* Geohash.swift */; };
+		5121EACAAB8045FE1FA76C59 /* UIKitPhotoPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC88808D6F01991C0ED4326C /* UIKitPhotoPicker.swift */; };
+		5AB7D47D8F627EA86F57868A /* FootprintDiaryComposerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4219E3DA582D384245BFD58F /* FootprintDiaryComposerScreen.swift */; };
 		6A3D65E51DDDC108922B2D94 /* MapScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B33251AA67116739BC38056 /* MapScreen.swift */; };
 		6D5615C1F7B4B38195E987D3 /* PhotoDetailScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E2CE3E9A67619AC823B0A76 /* PhotoDetailScreen.swift */; };
 		7C542AAE4169359C05D20915 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344297226BEBFBD6E311867B /* ContentView.swift */; };
 		903256B22030C4D9E31190D5 /* Geo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 944B397A7EB2DDB5B7E1D92E /* Geo.swift */; };
 		939CF885F3F4DA5ACE4BA909 /* PhotoAtlasApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC533351C83518A07427E04 /* PhotoAtlasApp.swift */; };
+		9A608062354C95590F5A73E5 /* PhotoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB76CDC887D25696E9A1A50B /* PhotoModels.swift */; };
+		AE564394F033A3B9282B98D3 /* PhotoPagerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E72B9A61AB09A114B6C7D96 /* PhotoPagerScreen.swift */; };
+		C499F5A90DEAD76607E9B1F6 /* ClusterTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC904EB51E25DD6E703B848 /* ClusterTypes.swift */; };
 		C9131DE4B27B944988683861 /* ClusterTimelineScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83A3D18C0DDF5B62628500EC /* ClusterTimelineScreen.swift */; };
 		D6D71975BFE9B168B0B886AB /* DateFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7999082A9FF4E559C1A1560F /* DateFormatters.swift */; };
+		E8FEED216008FFC4AD683C5E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A9D4F71F55C347CBD93EF0BA /* Assets.xcassets */; };
+		E9ACAE92D7804F781C3D5EE0 /* SelectedPhotosCartSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D826100AF29004BBD2331FB0 /* SelectedPhotosCartSheet.swift */; };
 		ECC393998EF2717BCD5481CD /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9CF392AC082DD8F026864D /* AppModel.swift */; };
 		F4D0F87EF0277D4B44F431C5 /* OfflineMapViewRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = D982AFFDB70441B4AAE3EC02 /* OfflineMapViewRepresentable.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		F0A1B2C3D4E5F60718293A4B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		02C0FA5A6739A8923990A17A /* Geohash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Geohash.swift; sourceTree = "<group>"; };
+		0E2C447A4385442660FED67C /* default.csv */ = {isa = PBXFileReference; path = default.csv; sourceTree = "<group>"; };
 		25082D2A477F29333EFCB245 /* SQLiteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteStore.swift; sourceTree = "<group>"; };
 		344297226BEBFBD6E311867B /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		4219E3DA582D384245BFD58F /* FootprintDiaryComposerScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FootprintDiaryComposerScreen.swift; sourceTree = "<group>"; };
 		4DC533351C83518A07427E04 /* PhotoAtlasApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoAtlasApp.swift; sourceTree = "<group>"; };
 		4E20AC10AF099D7D5FD6ACB4 /* OfflineMapUIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineMapUIView.swift; sourceTree = "<group>"; };
 		4E2CE3E9A67619AC823B0A76 /* PhotoDetailScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoDetailScreen.swift; sourceTree = "<group>"; };
-		4FA3719E502551F682CF9438 /* PhotoAtlas.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PhotoAtlas.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4FA3719E502551F682CF9438 /* PhotoAtlas.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PhotoAtlas.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		52F7B87E8263062D33FB05E3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		DEFA017C5A7E111122223333 /* default.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = default.csv; sourceTree = "<group>"; };
 		7999082A9FF4E559C1A1560F /* DateFormatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateFormatters.swift; sourceTree = "<group>"; };
 		80CF9F94EA4BEDC1B20279AF /* PhotosIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotosIndexer.swift; sourceTree = "<group>"; };
 		83A3D18C0DDF5B62628500EC /* ClusterTimelineScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterTimelineScreen.swift; sourceTree = "<group>"; };
+		83D953F073342E24A148C4F2 /* ActivityShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityShareSheet.swift; sourceTree = "<group>"; };
 		8B33251AA67116739BC38056 /* MapScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapScreen.swift; sourceTree = "<group>"; };
+		8E72B9A61AB09A114B6C7D96 /* PhotoPagerScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoPagerScreen.swift; sourceTree = "<group>"; };
 		944B397A7EB2DDB5B7E1D92E /* Geo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Geo.swift; sourceTree = "<group>"; };
+		A9D4F71F55C347CBD93EF0BA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		ADC4B99FA04825985388435F /* FootprintDiaryCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FootprintDiaryCardView.swift; sourceTree = "<group>"; };
 		BC9CF392AC082DD8F026864D /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		D826100AF29004BBD2331FB0 /* SelectedPhotosCartSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectedPhotosCartSheet.swift; sourceTree = "<group>"; };
 		D982AFFDB70441B4AAE3EC02 /* OfflineMapViewRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineMapViewRepresentable.swift; sourceTree = "<group>"; };
+		DC88808D6F01991C0ED4326C /* UIKitPhotoPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIKitPhotoPicker.swift; sourceTree = "<group>"; };
+		FB76CDC887D25696E9A1A50B /* PhotoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoModels.swift; sourceTree = "<group>"; };
+		FFC904EB51E25DD6E703B848 /* ClusterTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterTypes.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -64,22 +80,30 @@
 		A65A1F05AD933D6F945C1ED9 /* PhotoAtlas */ = {
 			isa = PBXGroup;
 			children = (
-				F0A1B2C3D4E5F60718293A4B /* Assets.xcassets */,
+				83D953F073342E24A148C4F2 /* ActivityShareSheet.swift */,
 				BC9CF392AC082DD8F026864D /* AppModel.swift */,
+				A9D4F71F55C347CBD93EF0BA /* Assets.xcassets */,
 				83A3D18C0DDF5B62628500EC /* ClusterTimelineScreen.swift */,
+				FFC904EB51E25DD6E703B848 /* ClusterTypes.swift */,
 				344297226BEBFBD6E311867B /* ContentView.swift */,
 				7999082A9FF4E559C1A1560F /* DateFormatters.swift */,
+				0E2C447A4385442660FED67C /* default.csv */,
+				ADC4B99FA04825985388435F /* FootprintDiaryCardView.swift */,
+				4219E3DA582D384245BFD58F /* FootprintDiaryComposerScreen.swift */,
 				944B397A7EB2DDB5B7E1D92E /* Geo.swift */,
 				02C0FA5A6739A8923990A17A /* Geohash.swift */,
 				52F7B87E8263062D33FB05E3 /* Info.plist */,
-				DEFA017C5A7E111122223333 /* default.csv */,
 				8B33251AA67116739BC38056 /* MapScreen.swift */,
 				4E20AC10AF099D7D5FD6ACB4 /* OfflineMapUIView.swift */,
 				D982AFFDB70441B4AAE3EC02 /* OfflineMapViewRepresentable.swift */,
 				4DC533351C83518A07427E04 /* PhotoAtlasApp.swift */,
 				4E2CE3E9A67619AC823B0A76 /* PhotoDetailScreen.swift */,
+				FB76CDC887D25696E9A1A50B /* PhotoModels.swift */,
+				8E72B9A61AB09A114B6C7D96 /* PhotoPagerScreen.swift */,
 				80CF9F94EA4BEDC1B20279AF /* PhotosIndexer.swift */,
+				D826100AF29004BBD2331FB0 /* SelectedPhotosCartSheet.swift */,
 				25082D2A477F29333EFCB245 /* SQLiteStore.swift */,
+				DC88808D6F01991C0ED4326C /* UIKitPhotoPicker.swift */,
 			);
 			path = PhotoAtlas;
 			sourceTree = "<group>";
@@ -92,7 +116,7 @@
 			buildConfigurationList = 0FF5060175CD12733845B7F4 /* Build configuration list for PBXNativeTarget "PhotoAtlas" */;
 			buildPhases = (
 				F884C966661DAF9CB3615649 /* Sources */,
-				F0A1B2C3D4E5F60718293A4D /* Resources */,
+				CC6AEEB1F56A6FFBA1CACC22 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -110,6 +134,8 @@
 			isa = PBXProject;
 			attributes = {
 				LastUpgradeCheck = 1200;
+				TargetAttributes = {
+				};
 			};
 			buildConfigurationList = 630C3902522E28B95E9FEB87 /* Build configuration list for PBXProject "PhotoAtlas" */;
 			compatibilityVersion = "Xcode 10.0";
@@ -129,12 +155,12 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		F0A1B2C3D4E5F60718293A4D /* Resources */ = {
+		CC6AEEB1F56A6FFBA1CACC22 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F0A1B2C3D4E5F60718293A4C /* Assets.xcassets in Resources */,
-				DEFA017C5A7E111122223334 /* default.csv in Resources */,
+				E8FEED216008FFC4AD683C5E /* Assets.xcassets in Resources */,
+				27FD14E60279447B6A63C673 /* default.csv in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -145,10 +171,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3D231512CF1A129A56346BEB /* ActivityShareSheet.swift in Sources */,
 				ECC393998EF2717BCD5481CD /* AppModel.swift in Sources */,
 				C9131DE4B27B944988683861 /* ClusterTimelineScreen.swift in Sources */,
+				C499F5A90DEAD76607E9B1F6 /* ClusterTypes.swift in Sources */,
 				7C542AAE4169359C05D20915 /* ContentView.swift in Sources */,
 				D6D71975BFE9B168B0B886AB /* DateFormatters.swift in Sources */,
+				235ADAB6EB7E4DE664E5E042 /* FootprintDiaryCardView.swift in Sources */,
+				5AB7D47D8F627EA86F57868A /* FootprintDiaryComposerScreen.swift in Sources */,
 				903256B22030C4D9E31190D5 /* Geo.swift in Sources */,
 				40ACA87CF686F56736094F6B /* Geohash.swift in Sources */,
 				6A3D65E51DDDC108922B2D94 /* MapScreen.swift in Sources */,
@@ -156,8 +186,12 @@
 				F4D0F87EF0277D4B44F431C5 /* OfflineMapViewRepresentable.swift in Sources */,
 				939CF885F3F4DA5ACE4BA909 /* PhotoAtlasApp.swift in Sources */,
 				6D5615C1F7B4B38195E987D3 /* PhotoDetailScreen.swift in Sources */,
+				9A608062354C95590F5A73E5 /* PhotoModels.swift in Sources */,
+				AE564394F033A3B9282B98D3 /* PhotoPagerScreen.swift in Sources */,
 				391C3F35FE6D0C0D4FA11F33 /* PhotosIndexer.swift in Sources */,
 				33D1E1D021268C6411A26E61 /* SQLiteStore.swift in Sources */,
+				E9ACAE92D7804F781C3D5EE0 /* SelectedPhotosCartSheet.swift in Sources */,
+				5121EACAAB8045FE1FA76C59 /* UIKitPhotoPicker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -288,7 +322,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = NKKPU3DN9E;
 				INFOPLIST_FILE = PhotoAtlas/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.2;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -307,7 +340,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = NKKPU3DN9E;
 				INFOPLIST_FILE = PhotoAtlas/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.2;
 				LD_RUNPATH_SEARCH_PATHS = (

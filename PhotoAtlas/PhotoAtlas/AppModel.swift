@@ -7,6 +7,13 @@ final class AppModel: ObservableObject {
     @Published var authorization: PHAuthorizationStatus = .notDetermined
     @Published var lastIndexSummary: String? = nil
 
+    // MARK: - Footprint Diary cart (ordered)
+
+    /// Ordered list of selected photo asset ids (PHAsset.localIdentifier).
+    /// Used as a lightweight "cart" for building a Footprint Diary share card.
+    @Published var footprintDiaryCartIds: [String] = []
+    let footprintDiaryCartLimit: Int = 9
+
     let db: SQLiteStore
     let indexer: PhotosIndexer
 
@@ -32,6 +39,42 @@ final class AppModel: ObservableObject {
     func openSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url)
+    }
+
+    // MARK: - Footprint Diary cart helpers
+
+    func isInFootprintDiaryCart(_ localId: String) -> Bool {
+        footprintDiaryCartIds.contains(localId)
+    }
+
+    /// Toggles the given asset id in the cart.
+    /// - Returns: whether the id is now in the cart.
+    @discardableResult
+    func toggleFootprintDiaryCart(_ localId: String) -> Bool {
+        if let idx = footprintDiaryCartIds.firstIndex(of: localId) {
+            footprintDiaryCartIds.remove(at: idx)
+            return false
+        }
+
+        guard footprintDiaryCartIds.count < footprintDiaryCartLimit else {
+            // silently ignore if we're at the limit
+            return false
+        }
+
+        footprintDiaryCartIds.append(localId)
+        return true
+    }
+
+    func removeFromFootprintDiaryCart(_ localId: String) {
+        footprintDiaryCartIds.removeAll { $0 == localId }
+    }
+
+    func moveFootprintDiaryCart(fromOffsets: IndexSet, toOffset: Int) {
+        footprintDiaryCartIds.move(fromOffsets: fromOffsets, toOffset: toOffset)
+    }
+
+    func clearFootprintDiaryCart() {
+        footprintDiaryCartIds.removeAll()
     }
 
     /// Auto-run indexing:

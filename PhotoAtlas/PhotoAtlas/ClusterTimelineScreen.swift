@@ -41,6 +41,122 @@ private struct FavoriteHeader: View {
     }
 }
 
+private struct ShareToolbarLabel: View {
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("Share")
+                .font(.footnote.weight(.semibold))
+
+            if count > 0 {
+                Text("\(count)")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(.thinMaterial)
+                    .clipShape(Capsule())
+            }
+        }
+    }
+}
+
+private struct TimelineRow: View {
+    @EnvironmentObject private var loader: PhotoImageLoader
+
+    let item: TimelineItem
+    let isShared: Bool
+    let onOpen: () -> Void
+    let onToggleShare: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            PhotoThumbnailView(localId: item.id)
+                .environmentObject(loader)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(formatTimestamp(item.creationTs))
+                        .font(.subheadline.weight(.semibold))
+
+                    if item.isFavorite {
+                        Image(systemName: "star.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.yellow)
+                    }
+
+                    if item.hasComment {
+                        Image(systemName: "text.bubble.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if isShared {
+                        Image(systemName: "square.and.arrow.up.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tint)
+                    }
+                }
+
+                Text(item.id)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onOpen() }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button {
+                guard !isShared else { return }
+                onToggleShare()
+            } label: {
+                Text("Share")
+            }
+            .tint(.blue)
+            .disabled(isShared)
+        }
+    }
+
+    private func formatTimestamp(_ ts: Double?) -> String {
+        guard let ts = ts else { return "(no date)" }
+        let d = Date(timeIntervalSince1970: ts)
+        return d.formatted(date: .abbreviated, time: .shortened)
+    }
+}
+
+private struct SwipeHintOverlay: View {
+    @State private var nudge: Bool = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "hand.draw")
+                .foregroundStyle(.secondary)
+
+            Text("Swipe left on a photo to share")
+                .font(.footnote.weight(.semibold))
+
+            Image(systemName: "chevron.left")
+                .font(.footnote.weight(.semibold))
+                .offset(x: nudge ? -4 : 0)
+                .opacity(nudge ? 1.0 : 0.55)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.thinMaterial)
+        .clipShape(Capsule())
+        .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.25), lineWidth: 1))
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
+                nudge = true
+            }
+        }
+        .accessibilityLabel("Swipe left on a photo row to see sharing options")
+    }
+}
+
 struct PagerSelection: Identifiable {
     let index: Int
     var id: Int { index }
@@ -56,6 +172,10 @@ struct ClusterTimelineScreen: View {
     @State private var flatItems: [TimelineItem] = []
     @State private var favoriteItems: [TimelineItem] = []
     @State private var pagerSelection: PagerSelection?
+
+    @State private var isFootprintDiaryPresented: Bool = false
+
+    @State private var showSwipeHint: Bool = false
 
     @StateObject private var imageLoader = PhotoImageLoader()
 
@@ -76,13 +196,38 @@ struct ClusterTimelineScreen: View {
             }
         }
         .navigationTitle("Timeline")
-        .task { await load() }
+        .toolbar {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                Button {
+                    isFootprintDiaryPresented = true
+                } label: {
+                    ShareToolbarLabel(count: model.footprintDiaryCartIds.count)
+                }
+                .disabled(model.footprintDiaryCartIds.isEmpty)
+            }
+        }
+        .task {
+            await load()
+            await maybeShowSwipeHint()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .photoUserDataDidChange)) { note in
             guard let localId = note.object as? String else { return }
             Task { await refreshUserBadges(for: localId) }
         }
+        .overlay(alignment: .bottom) {
+            if showSwipeHint {
+                SwipeHintOverlay()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.bottom, 10)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: showSwipeHint)
         .sheet(item: $pagerSelection) { sel in
             PhotoPagerScreen(ids: flatItems.map(\.id), selectedIndex: sel.index)
+                .environmentObject(model)
+        }
+        .sheet(isPresented: $isFootprintDiaryPresented) {
+            FootprintDiaryComposerScreen(initialSelectedAssetIds: model.footprintDiaryCartIds)
                 .environmentObject(model)
         }
     }
@@ -108,6 +253,18 @@ struct ClusterTimelineScreen: View {
             flatItems = []
             sections = []
         }
+    }
+
+    private func maybeShowSwipeHint() async {
+        // One-time per screen appearance.
+        guard !flatItems.isEmpty else { return }
+
+        // If there are already items selected, the affordance is already obvious.
+        guard model.footprintDiaryCartIds.isEmpty else { return }
+
+        showSwipeHint = true
+        try? await Task.sleep(nanoseconds: 2_800_000_000)
+        showSwipeHint = false
     }
 
     private func groupByMonth(_ items: [TimelineItem]) -> [TimelineSection] {
@@ -210,41 +367,19 @@ struct ClusterTimelineScreen: View {
 
     @ViewBuilder
     private func timelineRow(_ item: TimelineItem) -> some View {
-        Button {
-            if let idx = flatItems.firstIndex(where: { $0.id == item.id }) {
-                pagerSelection = PagerSelection(index: idx)
-            }
-        } label: {
-            HStack(spacing: 12) {
-                PhotoThumbnailView(localId: item.id)
-                    .environmentObject(imageLoader)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(formatTimestamp(item.creationTs))
-                            .font(.subheadline.weight(.semibold))
-
-                        if item.isFavorite {
-                            Image(systemName: "star.fill")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.yellow)
-                        }
-
-                        if item.hasComment {
-                            Image(systemName: "text.bubble.fill")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Text(item.id)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+        TimelineRow(
+            item: item,
+            isShared: model.isInFootprintDiaryCart(item.id),
+            onOpen: {
+                if let idx = flatItems.firstIndex(where: { $0.id == item.id }) {
+                    pagerSelection = PagerSelection(index: idx)
                 }
-                Spacer()
+            },
+            onToggleShare: {
+                _ = model.toggleFootprintDiaryCart(item.id)
             }
-        }
+        )
+        .environmentObject(imageLoader)
     }
 
     private func monthKey(_ ts: Double?) -> String {
@@ -319,30 +454,5 @@ struct PhotoThumbnailView: View {
     }
 }
 
-// MARK: - Swipe left/right within the current cluster
+// MARK: - Swipe left/right within the current cluster (moved to PhotoPagerScreen.swift)
 
-struct PhotoPagerScreen: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let ids: [String]
-    @State var selectedIndex: Int
-
-    var body: some View {
-        NavigationView {
-            TabView(selection: $selectedIndex) {
-                ForEach(ids.indices, id: \.self) { i in
-                    PhotoDetailScreen(localId: ids[i])
-                        .tag(i)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .automatic))
-            .navigationTitle("\(selectedIndex + 1) / \(ids.count)")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-    }
-}

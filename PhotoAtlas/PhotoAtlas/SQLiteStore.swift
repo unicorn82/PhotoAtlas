@@ -27,6 +27,23 @@ enum ClusterPrecision: Sendable, Equatable {
     case city
 }
 
+struct CountryDiarySummary: Sendable {
+    struct Highlight: Sendable {
+        /// Stable id for SwiftUI/transfer.
+        let id: String
+        /// Raw string so SQLiteStore stays independent of UI module enums.
+        let kindRaw: String
+        let countryCode: String
+        let countryName: String
+        let count: Int?
+        let yearsLine: String?
+    }
+
+    let countriesCount: Int
+    let dateRange: String
+    let highlights: [Highlight]
+}
+
 actor SQLiteStore {
     private var db: OpaquePointer?
 
@@ -496,6 +513,196 @@ actor SQLiteStore {
         } else {
             sqlite3_bind_null(stmt, idx)
         }
+    }
+
+    // MARK: - Diary summary
+
+    /// Country-only shareable summary used by the Footprint Diary card.
+    func countryDiarySummary() throws -> CountryDiarySummary {
+        guard let db = db else { throw SQLiteError.notOpen }
+
+        // 1) Countries count
+        let countriesCount: Int = {
+            let sql = "SELECT COUNT(DISTINCT country_code) FROM photos WHERE country_code IS NOT NULL;"
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                return 0
+            }
+            guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+            return Int(sqlite3_column_int(stmt, 0))
+        }()
+
+        // 2) Date range (from photo creation timestamps)
+        let dateRange: String = {
+            let sql = "SELECT MIN(creation_ts), MAX(creation_ts) FROM photos WHERE creation_ts IS NOT NULL;"
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                return "All time"
+            }
+            guard sqlite3_step(stmt) == SQLITE_ROW else { return "All time" }
+            if sqlite3_column_type(stmt, 0) == SQLITE_NULL || sqlite3_column_type(stmt, 1) == SQLITE_NULL {
+                return "All time"
+            }
+            let minTs = sqlite3_column_double(stmt, 0)
+            let maxTs = sqlite3_column_double(stmt, 1)
+            let minYear = Calendar.current.component(.year, from: Date(timeIntervalSince1970: minTs))
+            let maxYear = Calendar.current.component(.year, from: Date(timeIntervalSince1970: maxTs))
+            return (minYear == maxYear) ? "\(minYear)" : "\(minYear)–\(maxYear)"
+        }()
+
+        // Helpers
+        func countryName(forCode code: String?) -> String? {
+            guard let code = code else { return nil }
+            // Prefer stored country_name in DB; if absent, fall back to the code.
+            let sql = "SELECT COALESCE(MAX(country_name), ?) FROM photos WHERE country_code = ?;"
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return code }
+            sqlite3_bind_text(stmt, 1, code, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, code, -1, SQLITE_TRANSIENT)
+            guard sqlite3_step(stmt) == SQLITE_ROW else { return code }
+            if let cstr = sqlite3_column_text(stmt, 0) {
+                return String(cString: cstr)
+            }
+            return code
+        }
+
+        func yearsLine(forCountryCode code: String) -> String? {
+            let sql = "SELECT MIN(creation_ts), MAX(creation_ts) FROM photos WHERE country_code = ? AND creation_ts IS NOT NULL;"
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+            sqlite3_bind_text(stmt, 1, code, -1, SQLITE_TRANSIENT)
+            guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+            if sqlite3_column_type(stmt, 0) == SQLITE_NULL || sqlite3_column_type(stmt, 1) == SQLITE_NULL { return nil }
+            let minTs = sqlite3_column_double(stmt, 0)
+            let maxTs = sqlite3_column_double(stmt, 1)
+            let minYear = Calendar.current.component(.year, from: Date(timeIntervalSince1970: minTs))
+            let maxYear = Calendar.current.component(.year, from: Date(timeIntervalSince1970: maxTs))
+            return (minYear == maxYear) ? "\(minYear)" : "\(minYear) → \(maxYear)"
+        }
+
+        // 3) Highlights
+        var highlights: [CountryDiarySummary.Highlight] = []
+
+        // Most photographed country
+        do {
+            let sql = """
+            SELECT country_code, COALESCE(country_name, country_code) AS name, COUNT(*) AS cnt
+            FROM photos
+            WHERE country_code IS NOT NULL
+            GROUP BY country_code
+            ORDER BY cnt DESC
+            LIMIT 1;
+            """
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, sqlite3_step(stmt) == SQLITE_ROW {
+                let code = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? "??"
+                let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? code
+                let cnt = Int(sqlite3_column_int(stmt, 2))
+
+                // List up to 3 years (most recent distinct years) for diary flavor.
+                let years: String? = {
+                    let sql2 = """
+                    SELECT DISTINCT CAST(strftime('%Y', datetime(creation_ts, 'unixepoch')) AS INTEGER) AS y
+                    FROM photos
+                    WHERE country_code = ? AND creation_ts IS NOT NULL
+                    ORDER BY y ASC;
+                    """
+                    var stmt2: OpaquePointer?
+                    defer { sqlite3_finalize(stmt2) }
+                    guard sqlite3_prepare_v2(db, sql2, -1, &stmt2, nil) == SQLITE_OK else { return yearsLine(forCountryCode: code) }
+                    sqlite3_bind_text(stmt2, 1, code, -1, SQLITE_TRANSIENT)
+                    var ys: [Int] = []
+                    while sqlite3_step(stmt2) == SQLITE_ROW {
+                        ys.append(Int(sqlite3_column_int(stmt2, 0)))
+                    }
+                    if ys.isEmpty { return yearsLine(forCountryCode: code) }
+                    // If many years, show first + last + one middle-ish.
+                    if ys.count <= 3 {
+                        return ys.map(String.init).joined(separator: ", ")
+                    } else {
+                        return "\(ys.first!) , \(ys[ys.count/2]) , \(ys.last!)".replacingOccurrences(of: " ,", with: ",")
+                    }
+                }()
+
+                highlights.append(.init(
+                    id: "mostPhotographed",
+                    kindRaw: "mostPhotographed",
+                    countryCode: code,
+                    countryName: name,
+                    count: cnt,
+                    yearsLine: years
+                ))
+            }
+        }
+
+        // First stamp (earliest photo by creation_ts with a country)
+        do {
+            let sql = """
+            SELECT country_code, COALESCE(country_name, country_code) AS name, MIN(creation_ts) AS min_ts
+            FROM photos
+            WHERE country_code IS NOT NULL AND creation_ts IS NOT NULL
+            GROUP BY country_code
+            ORDER BY min_ts ASC
+            LIMIT 1;
+            """
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, sqlite3_step(stmt) == SQLITE_ROW {
+                let code = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? "??"
+                let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? code
+                let minTs = sqlite3_column_double(stmt, 2)
+                let year = Calendar.current.component(.year, from: Date(timeIntervalSince1970: minTs))
+                highlights.append(.init(
+                    id: "firstStamp",
+                    kindRaw: "firstStamp",
+                    countryCode: code,
+                    countryName: name,
+                    count: nil,
+                    yearsLine: "\(year)"
+                ))
+            }
+        }
+
+        // Latest stamp (most recent photo by creation_ts with a country)
+        do {
+            let sql = """
+            SELECT country_code, COALESCE(country_name, country_code) AS name, MAX(creation_ts) AS max_ts
+            FROM photos
+            WHERE country_code IS NOT NULL AND creation_ts IS NOT NULL
+            GROUP BY country_code
+            ORDER BY max_ts DESC
+            LIMIT 1;
+            """
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, sqlite3_step(stmt) == SQLITE_ROW {
+                let code = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? "??"
+                let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? code
+                let maxTs = sqlite3_column_double(stmt, 2)
+                let year = Calendar.current.component(.year, from: Date(timeIntervalSince1970: maxTs))
+                highlights.append(.init(
+                    id: "latestStamp",
+                    kindRaw: "latestStamp",
+                    countryCode: code,
+                    countryName: name,
+                    count: nil,
+                    yearsLine: "\(year)"
+                ))
+            }
+        }
+
+        // Ensure highlights are in a consistent order.
+        let order = ["mostPhotographed", "firstStamp", "latestStamp"]
+        highlights.sort { a, b in
+            (order.firstIndex(of: a.kindRaw) ?? 999) < (order.firstIndex(of: b.kindRaw) ?? 999)
+        }
+
+        return CountryDiarySummary(countriesCount: countriesCount, dateRange: dateRange, highlights: highlights)
     }
 }
 

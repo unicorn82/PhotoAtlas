@@ -29,6 +29,7 @@ struct MapScreen: View {
     @State private var refreshTask: Task<Void, Never>? = nil
 
     @State private var showPhotosPermissionPrimer: Bool = false
+    @State private var showFootprintDiary: Bool = false
 
     /// Prevent automatic re-focusing after the user has manually navigated the map.
     @State private var didInitialAutoFocus: Bool = false
@@ -73,17 +74,12 @@ struct MapScreen: View {
 
                 deniedOverlay
             }
-            .navigationTitle("PhotoAtlas")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .onReceive(NotificationCenter.default.publisher(for: .openFootprintDiaryComposer)) { _ in
+                showFootprintDiary = true
+            }
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        isMenuPresented = true
-                    } label: {
-                        Image(systemName: "line.3.horizontal")
-                    }
-                }
-
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     Button {
                         Task {
@@ -149,6 +145,10 @@ struct MapScreen: View {
                         // User can still explore the map; pins may be empty until access granted.
                     }
                 )
+            }
+            .sheet(isPresented: $showFootprintDiary) {
+                FootprintDiaryComposerScreen()
+                    .environmentObject(model)
             }
             .task {
                 model.refreshAuthorization()
@@ -540,6 +540,10 @@ private struct PhotosPermissionPrimerSheet: View {
     }
 }
 
+extension Notification.Name {
+    static let openFootprintDiaryComposer = Notification.Name("openFootprintDiaryComposer")
+}
+
 private struct MapActionsSheet: View {
     let summary: String?
 
@@ -561,6 +565,12 @@ private struct MapActionsSheet: View {
                 Section {
                     Button("Refresh Pins") {
                         onRefresh()
+                        dismiss()
+                    }
+
+                    Button("Share Footprint Diary") {
+                        // Keep the sheet open/close behavior consistent.
+                        NotificationCenter.default.post(name: .openFootprintDiaryComposer, object: nil)
                         dismiss()
                     }
 
