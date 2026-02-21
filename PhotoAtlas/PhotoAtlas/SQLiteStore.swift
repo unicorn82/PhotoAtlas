@@ -13,6 +13,14 @@ struct PhotoRecord: Sendable {
     let city: String?
 }
 
+struct DetailedPhotoRecord: Sendable {
+    let localId: String
+    let creationTs: Double?
+    let countryName: String?
+    let cityName: String?
+    let comment: String?
+}
+
 struct ClusterBubble: Identifiable, Sendable {
     /// Cluster key, e.g. "country:US" or "city:Denver|US".
     let id: String
@@ -39,9 +47,19 @@ struct CountryDiarySummary: Sendable {
         let yearsLine: String?
     }
 
+    struct TopCountry: Sendable, Identifiable {
+        var id: String { countryCode }
+        let countryCode: String
+        let countryName: String
+        let photoCount: Int
+        let citiesCount: Int
+    }
+
     let countriesCount: Int
+    let citiesCount: Int
     let dateRange: String
     let highlights: [Highlight]
+    let topCountries: [TopCountry]
 }
 
 actor SQLiteStore {
@@ -497,6 +515,43 @@ actor SQLiteStore {
         }
     }
 
+    func fetchDetailedRecords(localIds: [String]) throws -> [DetailedPhotoRecord] {
+        guard let db = db else { throw SQLiteError.notOpen }
+        if localIds.isEmpty { return [] }
+
+        let placeholders = Array(repeating: "?", count: localIds.count).joined(separator: ",")
+        let sql = "SELECT local_id, creation_ts, country_name, city, comment FROM photos WHERE local_id IN (\(placeholders));"
+
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+            throw SQLiteError.prepareFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+
+        for (i, id) in localIds.enumerated() {
+            sqlite3_bind_text(stmt, Int32(i + 1), id, -1, SQLITE_TRANSIENT)
+        }
+
+        var results: [DetailedPhotoRecord] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let localId = String(cString: sqlite3_column_text(stmt, 0))
+            let creationTs = sqlite3_column_type(stmt, 1) == SQLITE_NULL ? nil : sqlite3_column_double(stmt, 1)
+            let countryName = sqlite3_column_type(stmt, 2) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(stmt, 2))
+            let cityName = sqlite3_column_type(stmt, 3) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(stmt, 3))
+            let comment = sqlite3_column_type(stmt, 4) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(stmt, 4))
+
+            results.append(DetailedPhotoRecord(
+                localId: localId,
+                creationTs: creationTs,
+                countryName: countryName,
+                cityName: cityName,
+                comment: comment
+            ))
+        }
+        return results
+    }
+
     // MARK: - Binding helpers
 
     private func bindText(_ stmt: OpaquePointer?, _ idx: Int32, _ value: String?) {
@@ -529,6 +584,16 @@ actor SQLiteStore {
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
                 return 0
             }
+            guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+            return Int(sqlite3_column_int(stmt, 0))
+        }()
+
+        // 1b) Cities count
+        let citiesCount: Int = {
+            let sql = "SELECT COUNT(DISTINCT city) FROM photos WHERE city IS NOT NULL AND LENGTH(city) > 0;"
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
             guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
             return Int(sqlite3_column_int(stmt, 0))
         }()
@@ -702,7 +767,31 @@ actor SQLiteStore {
             (order.firstIndex(of: a.kindRaw) ?? 999) < (order.firstIndex(of: b.kindRaw) ?? 999)
         }
 
-        return CountryDiarySummary(countriesCount: countriesCount, dateRange: dateRange, highlights: highlights)
+        // 4) Top Countries
+        var topCountries: [CountryDiarySummary.TopCountry] = []
+        do {
+            let sql = """
+            SELECT country_code, COALESCE(country_name, country_code), COUNT(*), COUNT(DISTINCT city)
+            FROM photos
+            WHERE country_code IS NOT NULL
+            GROUP BY country_code
+            ORDER BY COUNT(*) DESC
+            LIMIT 3;
+            """
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let code = String(cString: sqlite3_column_text(stmt, 0))
+                    let name = String(cString: sqlite3_column_text(stmt, 1))
+                    let pCnt = Int(sqlite3_column_int(stmt, 2))
+                    let cCnt = Int(sqlite3_column_int(stmt, 3))
+                    topCountries.append(.init(countryCode: code, countryName: name, photoCount: pCnt, citiesCount: cCnt))
+                }
+            }
+        }
+
+        return CountryDiarySummary(countriesCount: countriesCount, citiesCount: citiesCount, dateRange: dateRange, highlights: highlights, topCountries: topCountries)
     }
 }
 

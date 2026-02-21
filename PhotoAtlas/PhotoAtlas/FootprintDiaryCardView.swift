@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 enum FootprintDiaryCardFormat: String, CaseIterable, Identifiable {
     case portrait
@@ -25,7 +26,8 @@ enum FootprintDiaryCardFormat: String, CaseIterable, Identifiable {
     }
 }
 
-struct FootprintDiaryCardModel {
+struct FootprintDiaryCardModel: Identifiable {
+    let id = UUID()
     struct Highlight: Identifiable {
         enum Kind: String {
             case mostPhotographed
@@ -51,13 +53,29 @@ struct FootprintDiaryCardModel {
     let title: String
     let dateRange: String
     let countriesCount: Int
+    let citiesCount: Int?
+    let topCountries: [CountryDiarySummary.TopCountry]?
     let highlights: [Highlight]
 
+    // New: World Footprint map data
+    var visitedCities: [ClusterBubble] = []
+    var visitedContinents: [String] = []
+
+    // Snapshot image + projection closure (passed from Composer)
+    var mapSnapshot: UIImage?
+    var mapOverlaySize: CGSize = .zero
+    var mapPointForCoord: ((CLLocationCoordinate2D) -> CGPoint)?
+
     /// User-selected images (1...9 recommended).
-    let pickedImages: [UIImage]
+    var pickedImages: [UIImage]
 
     /// Optional user-provided captions for the picked images (same count or empty).
     let pickedCaptions: [String]
+
+    /// Metadata visibility toggles
+    var showYears: Bool = true
+    var showCountries: Bool = true
+    var showCities: Bool = true
 
     /// Privacy line to display.
     let privacyLine: String
@@ -77,18 +95,18 @@ struct FootprintDiaryCardView: View {
         ZStack {
             background
 
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 24) {
                 header
 
-                hero
-
-                highlights
+                if model.showCountries && !model.highlights.isEmpty {
+                    highlights
+                }
 
                 pickedPhotos
 
                 footer
             }
-            .padding(56)
+            .padding(48)
         }
         .frame(width: format.size.width, height: format.size.height)
     }
@@ -117,113 +135,21 @@ struct FootprintDiaryCardView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .lastTextBaseline, spacing: 14) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(model.title)
-                .font(.system(size: 64, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.93))
+                .font(.system(size: 82, weight: .black, design: .rounded))
+                .foregroundStyle(.white.opacity(0.96))
 
-            Text(model.dateRange)
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.68))
-        }
-    }
-
-    private var hero: some View {
-        ZStack(alignment: .topTrailing) {
-            RoundedRectangle(cornerRadius: 40, style: .continuous)
-                .fill(.white.opacity(0.075))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 40, style: .continuous)
-                        .stroke(.white.opacity(0.14), lineWidth: 1)
-                )
-                .overlay(mapGrid.opacity(0.18).clipShape(RoundedRectangle(cornerRadius: 40, style: .continuous)))
-
-            Text("TRAVEL LOG")
-                .font(.system(size: 18, weight: .heavy, design: .rounded))
-                .foregroundStyle(.white.opacity(0.82))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(.black.opacity(0.22))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(.white.opacity(0.24), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .padding(26)
-
-            VStack(alignment: .leading, spacing: 14) {
-                Text("A diary of places I kept")
-                    .font(.system(size: 34, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.92))
-
-                HStack(spacing: 14) {
-                    statChip(big: "\(model.countriesCount)", label: "Countries")
+            HStack(spacing: 12) {
+                let showY = model.showYears && !model.dateRange.isEmpty
+                
+                if showY {
+                    Text(model.dateRange)
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.6))
                 }
-
-                quote
-
-                Spacer()
-
-                Text(model.privacyLine)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.60))
             }
-            .padding(28)
-            .padding(.top, 6)
-            .padding(.trailing, 90) // keep clear of stamp
         }
-        .frame(height: heroHeight)
-    }
-
-    private var heroHeight: CGFloat {
-        switch format {
-        case .portrait: return 520
-        case .square: return 440
-        case .landscape: return 420
-        }
-    }
-
-    private func statChip(big: String, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(big)
-                .font(.system(size: 56, weight: .black, design: .rounded))
-                .foregroundStyle(.white.opacity(0.94))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-
-            Text(label)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.56))
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(.white.opacity(0.10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(.white.opacity(0.12), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-
-    private var quote: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("—")
-                .foregroundStyle(.white.opacity(0.55))
-                .font(.system(size: 28, weight: .black, design: .rounded))
-
-            Text("Not a map of where I went.\nA map of what I chose to remember.")
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.86))
-                .lineSpacing(2)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
-        .background(.black.opacity(0.16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(.white.opacity(0.10), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private var mapGrid: some View {
@@ -252,14 +178,28 @@ struct FootprintDiaryCardView: View {
     }
 
     private var highlights: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Highlights")
-                .font(.system(size: 34, weight: .black, design: .rounded))
-                .foregroundStyle(.white.opacity(0.93))
-
-            VStack(spacing: 12) {
-                ForEach(model.highlights.prefix(3)) { h in
-                    highlightRow(h)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 16) {
+                ForEach(model.highlights.prefix(5)) { h in
+                    HStack(spacing: 10) {
+                        Text(h.countryName)
+                            .font(.system(size: 24, weight: .black, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.9))
+                        
+                        if let count = h.count {
+                            Text("\(count)")
+                                .font(.system(size: 20, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.5))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(.white.opacity(0.1))
+                                .clipShape(Capsule())
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                    .background(.white.opacity(0.08))
+                    .clipShape(Capsule())
                 }
             }
         }
@@ -308,97 +248,242 @@ struct FootprintDiaryCardView: View {
     }
 
     private var pickedPhotos: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Picked photos")
-                .font(.system(size: 34, weight: .black, design: .rounded))
-                .foregroundStyle(.white.opacity(0.93))
-
+        VStack(alignment: .leading, spacing: 20) {
             let imgs = model.pickedImages
             if imgs.isEmpty {
-                Text("Pick up to 9 photos to make it yours.")
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.60))
-                    .padding(.vertical, 10)
-            } else {
-                photoGrid
-            }
-        }
-    }
-
-    private var photoGrid: some View {
-        let imgs = model.pickedImages
-        let captions = model.pickedCaptions
-
-        let cols: Int = {
-            if imgs.count <= 4 { return 4 }
-            return 3
-        }()
-
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 14), count: cols)
-
-        return LazyVGrid(columns: columns, spacing: 14) {
-            ForEach(imgs.indices, id: \ .self) { idx in
-                ZStack(alignment: .bottomLeading) {
-                    Image(uiImage: imgs[idx])
-                        .resizable()
-                        .scaledToFill()
-                        .clipped()
-
-                    if idx < captions.count, !captions[idx].isEmpty {
-                        Text(captions[idx])
-                            .font(.system(size: 18, weight: .black, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.92))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(.black.opacity(0.40))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .stroke(.white.opacity(0.14), lineWidth: 1)
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .padding(14)
-                    }
+                VStack(spacing: 20) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 80))
+                        .foregroundStyle(.white.opacity(0.15))
+                    Text("Select up to 9 photos to showcase your footprint.")
+                        .font(.system(size: 28, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.4))
                 }
-                .frame(height: photoTileHeight(for: imgs.count))
-                .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 34, style: .continuous)
-                        .stroke(.white.opacity(0.18), lineWidth: 1)
-                )
+                .frame(maxWidth: .infinity)
+                .frame(height: 400)
+                .background(.white.opacity(0.03))
+                .clipShape(RoundedRectangle(cornerRadius: 40, style: .continuous))
+            } else {
+                photoLayout(imgs: imgs)
             }
         }
     }
 
-    private func photoTileHeight(for count: Int) -> CGFloat {
-        // tuned for render sizes.
-        switch format {
-        case .portrait:
-            if count <= 4 { return 250 }
-            if count <= 6 { return 230 }
-            return 220
-        case .square:
-            if count <= 4 { return 220 }
-            if count <= 6 { return 205 }
-            return 195
-        case .landscape:
-            if count <= 4 { return 200 }
-            if count <= 6 { return 188 }
-            return 178
+    @ViewBuilder
+    private func photoLayout(imgs: [UIImage]) -> some View {
+        let count = imgs.count
+        if count == 1 {
+            singleImageLayout(img: imgs[0], index: 0)
+        } else if count == 2 {
+            HStack(spacing: 16) {
+                ForEach(0..<2) { i in
+                    imageTile(img: imgs[i], index: i)
+                }
+            }
+            .frame(height: 850)
+        } else if count == 3 {
+            HStack(spacing: 16) {
+                imageTile(img: imgs[0], index: 0)
+                VStack(spacing: 16) {
+                    imageTile(img: imgs[1], index: 1)
+                    imageTile(img: imgs[2], index: 2)
+                }
+            }
+            .frame(height: 900)
+        } else {
+            // Grid for 4-9 images
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: count <= 4 ? 2 : 3)
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(0..<count, id: \.self) { i in
+                    imageTile(img: imgs[i], index: i)
+                        .frame(height: count <= 6 ? 440 : 340)
+                }
+            }
+        }
+    }
+
+    private func singleImageLayout(img: UIImage, index: Int) -> some View {
+        imageTile(img: img, index: index)
+            .frame(height: 1000)
+    }
+
+    private func imageTile(img: UIImage, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Image(uiImage: img)
+                .resizable()
+                .scaledToFill()
+                .frame(minWidth: 0, maxWidth: .infinity)
+                .frame(minHeight: 0, maxHeight: .infinity)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 32, style: .continuous)
+                        .stroke(.white.opacity(0.15), lineWidth: 1)
+                )
+
+            if index < model.pickedCaptions.count, !model.pickedCaptions[index].isEmpty {
+                Text(model.pickedCaptions[index])
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .lineLimit(2)
+                    .padding(.horizontal, 8)
+            }
         }
     }
 
     private var footer: some View {
         HStack {
-            Text("Generated on-device · No upload")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.62))
-
             Spacer()
-
+            
             Text("photoatlas.app")
                 .font(.system(size: 20, weight: .black, design: .rounded))
                 .foregroundStyle(.white.opacity(0.76))
         }
-        .padding(.top, 4)
+    }
+}
+
+// MARK: - World Footprint (Infographic Style)
+
+struct WorldFootprintCardView: View {
+    let format: FootprintDiaryCardFormat
+    let model: FootprintDiaryCardModel
+
+    var body: some View {
+        ZStack {
+            // Paper texture background
+            Color(red: 0.97, green: 0.96, blue: 0.93).ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Header
+                HStack(spacing: 8) {
+                    Image(systemName: "airplane")
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundStyle(Color(red: 0.2, green: 0.4, blue: 0.6))
+                    Text("My Travel Footprint")
+                        .font(.system(size: 42, weight: .heavy, design: .serif))
+                        .foregroundStyle(Color(red: 0.1, green: 0.25, blue: 0.45))
+                }
+                .padding(.top, 32)
+                .padding(.bottom, 24)
+
+                // Main Card Container
+                VStack(spacing: 0) {
+                    // Top Stats Bar
+                    HStack {
+                        statItem(icon: "flag.fill", label: "Countries Visited", value: "\(model.countriesCount)", color: .red)
+
+                        Divider().frame(height: 24)
+
+                        statItem(icon: "building.2.fill", label: "Cities Explored", value: "\(model.citiesCount ?? 0)", color: .blue)
+
+                        Divider().frame(height: 24)
+
+                        // Top Country
+                        statItem(icon: "mappin.and.ellipse", label: "Most Visited", value: model.topCountries?.first?.countryName ?? "Unknown", color: .green)
+                    }
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 20)
+                    .background(Color.white.opacity(0.6))
+                    .frame(maxWidth: .infinity)
+                    
+                    Divider()
+
+                    // Map Area
+                    ZStack {
+                        if let snap = model.mapSnapshot {
+                            Image(uiImage: snap)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else {
+                            Rectangle().fill(Color(red: 0.85, green: 0.92, blue: 0.97))
+                                .overlay(Text("Loading Map...").foregroundStyle(.secondary))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+
+                    Divider()
+
+                    // Bottom Stats
+                    HStack(spacing: 16) {
+                        Text("Continents:")
+                            .font(.system(size: 18, weight: .bold, design: .serif))
+                            .foregroundStyle(.secondary)
+                        
+                        // Fallback continents if empty
+                        let continents = model.visitedContinents.isEmpty ? ["North America", "Europe", "Asia"] : model.visitedContinents
+                        
+                        ForEach(continents, id: \.self) { cont in
+                            HStack(spacing: 4) {
+                                Image(systemName: continentIcon(cont))
+                                    .foregroundStyle(continentColor(cont))
+                                Text(cont)
+                                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.primary.opacity(0.8))
+                            }
+                        }
+                    }
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 16)
+                    .background(Color.white.opacity(0.6))
+                }
+                .background(Color(red: 0.99, green: 0.99, blue: 0.98)) // Card white
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(Color(red: 0.85, green: 0.82, blue: 0.75), lineWidth: 4)
+                )
+                .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 32)
+                .frame(maxWidth: .infinity) // Ensure card fills 1080 width
+            }
+        }
+        .frame(width: format.size.width, height: format.size.height)
+    }
+
+    private func statItem(icon: String, label: String, value: String, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.headline)
+                .foregroundStyle(color)
+            
+            HStack(alignment: .lastTextBaseline, spacing: 4) {
+                Text(value)
+                    .font(.system(size: 24, weight: .bold, design: .serif))
+                    .foregroundStyle(.black.opacity(0.85))
+                Text(label)
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+
+    private func continentIcon(_ name: String) -> String {
+        switch name {
+        case "North America": return "globe.americas.fill"
+        case "South America": return "globe.americas.fill"
+        case "Europe": return "globe.europe.africa.fill"
+        case "Asia": return "globe.asia.australia.fill"
+        case "Africa": return "globe.europe.africa.fill"
+        case "Oceania": return "globe.asia.australia.fill"
+        default: return "globe"
+        }
+    }
+    
+    private func continentColor(_ name: String) -> Color {
+        switch name {
+        case "North America": return .green
+        case "South America": return .orange
+        case "Europe": return .blue
+        case "Asia": return .red
+        case "Africa": return .yellow
+        case "Oceania": return .purple
+        default: return .gray
+        }
     }
 }

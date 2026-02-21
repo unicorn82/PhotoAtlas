@@ -5,6 +5,7 @@ import MapKit
 /// We kept the file name to avoid having to edit the Xcode project’s file list.
 struct OfflineMapViewRepresentable: UIViewRepresentable {
     var clusters: [ClusterBubble]
+    @Binding var selectedClusterId: String?
 
     /// If set, the map will move to this region (once) and then call `onAppliedDesiredRegion`.
     var desiredRegion: MKCoordinateRegion?
@@ -45,6 +46,7 @@ struct OfflineMapViewRepresentable: UIViewRepresentable {
         //
         // Instead, diff by `key` and only add/remove/update what changed.
         context.coordinator.applyClusters(clusters, to: map)
+        context.coordinator.updateAnnotationColors(in: map)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -99,6 +101,16 @@ struct OfflineMapViewRepresentable: UIViewRepresentable {
             }
         }
 
+        func updateAnnotationColors(in map: MKMapView) {
+            for annotation in map.annotations {
+                if let ann = annotation as? ClusterAnnotation,
+                   let view = map.view(for: ann) as? MKMarkerAnnotationView {
+                    let isSelected = ann.key == parent.selectedClusterId
+                    view.markerTintColor = isSelected ? .systemOrange : .systemBlue
+                }
+            }
+        }
+
         func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
             // Heuristic: if any gesture recognizer is active, treat as user gesture.
             let isGestureActive = mapView.gestureRecognizers?.contains(where: {
@@ -129,14 +141,27 @@ struct OfflineMapViewRepresentable: UIViewRepresentable {
             view.annotation = ann
             view.canShowCallout = true
             view.glyphText = formatCount(ann.count)
-            view.markerTintColor = .systemBlue
+            
+            let isSelected = ann.key == parent.selectedClusterId
+            view.markerTintColor = isSelected ? .systemOrange : .systemBlue
+            
             view.displayPriority = .defaultHigh
             return view
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
             guard let ann = view.annotation as? ClusterAnnotation else { return }
+            parent.selectedClusterId = ann.key
+            updateAnnotationColors(in: mapView)
             parent.onClusterTapped(ann.key)
+        }
+
+        func mapView(_ mapView: MKMapView, didDeselect view: MKAnnotationView) {
+            guard let ann = view.annotation as? ClusterAnnotation else { return }
+            if parent.selectedClusterId == ann.key {
+                parent.selectedClusterId = nil
+            }
+            updateAnnotationColors(in: mapView)
         }
 
         private func formatCount(_ c: Int) -> String {

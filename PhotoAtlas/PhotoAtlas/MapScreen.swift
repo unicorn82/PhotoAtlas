@@ -30,6 +30,7 @@ struct MapScreen: View {
 
     @State private var showPhotosPermissionPrimer: Bool = false
     @State private var showFootprintDiary: Bool = false
+    @State private var composerRequestedStyle: FootprintDiaryStyle = .classic
 
     /// Prevent automatic re-focusing after the user has manually navigated the map.
     @State private var didInitialAutoFocus: Bool = false
@@ -40,6 +41,7 @@ struct MapScreen: View {
             ZStack {
                 OfflineMapViewRepresentable(
                     clusters: clusters,
+                    selectedClusterId: $selectedClusterId,
                     desiredRegion: desiredRegion,
                     onAppliedDesiredRegion: {
                         // Clear so we don’t re-apply every updateUIView.
@@ -76,24 +78,41 @@ struct MapScreen: View {
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .onReceive(NotificationCenter.default.publisher(for: .openFootprintDiaryComposer)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .openFootprintDiaryComposer)) { note in
+                if let requestedStyle = note.object as? FootprintDiaryStyle {
+                    composerRequestedStyle = requestedStyle
+                } else {
+                    composerRequestedStyle = .classic
+                }
                 showFootprintDiary = true
             }
             .toolbar {
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    Button {
-                        Task {
-                            userHasManuallyFocused = true
-                            await focusMeCityLevel()
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Menu {
+                        Button {
+                            switchPrecision(to: .country)
+                        } label: {
+                            Label("Countries", systemImage: "globe")
+                        }
+                        
+                        Button {
+                            switchPrecision(to: .city)
+                        } label: {
+                            Label("Cities", systemImage: "building.2")
                         }
                     } label: {
-                        Image(systemName: "location.fill")
-                    }
-                    .accessibilityLabel("Focus Me")
-
-                    Text(labelForPrecision(precision))
-                        .font(.footnote)
+                        HStack(spacing: 4) {
+                            Text(labelForPrecision(precision))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        .font(.footnote.bold())
                         .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.regularMaterial)
+                        .clipShape(Capsule())
+                    }
                 }
             }
             .sheet(isPresented: $isMenuPresented) {
@@ -147,7 +166,7 @@ struct MapScreen: View {
                 )
             }
             .sheet(isPresented: $showFootprintDiary) {
-                FootprintDiaryComposerScreen()
+                FootprintDiaryComposerScreen(initialStyle: composerRequestedStyle)
                     .environmentObject(model)
             }
             .task {
@@ -203,12 +222,41 @@ struct MapScreen: View {
     }
 
     private var pinNavigator: some View {
-        VStack {
+        VStack(alignment: .trailing, spacing: 12) {
             Spacer()
 
-            HStack {
-                Spacer()
+            HStack(spacing: 12) {
+                // Action Group
+                HStack(spacing: 10) {
+                    Button {
+                        NotificationCenter.default.post(name: .openFootprintDiaryComposer, object: FootprintDiaryStyle.worldFootprint)
+                    } label: {
+                        Image(systemName: "airplane")
+                            .font(.headline)
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.regularMaterial)
+                    .clipShape(Circle())
+                    .accessibilityLabel("World Footprint")
 
+                    Button {
+                        Task {
+                            userHasManuallyFocused = true
+                            await focusMeCityLevel()
+                        }
+                    } label: {
+                        Image(systemName: "location.fill")
+                            .font(.headline)
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.regularMaterial)
+                    .clipShape(Circle())
+                    .accessibilityLabel("Focus Me")
+                }
+
+                // Navigation Group
                 HStack(spacing: 10) {
                     Button {
                         userHasManuallyFocused = true
@@ -236,13 +284,25 @@ struct MapScreen: View {
                     .clipShape(Circle())
                     .disabled(clusters.isEmpty)
                 }
-                .padding(.trailing, 14)
-                .padding(.bottom, 18)
+            }
+            .padding(.horizontal, 14)
+
+            // Current Selection Label
+            if let selectedId = selectedClusterId,
+               let cluster = clusters.first(where: { $0.id == selectedId }) {
+                Text(cluster.title)
+                    .font(.footnote.bold())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.regularMaterial)
+                    .clipShape(Capsule())
+                    .padding(.trailing, 14)
             }
         }
-        .allowsHitTesting(!clusters.isEmpty)
+        .padding(.bottom, 30)
+        .allowsHitTesting(true)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Pin navigator")
+        .accessibilityLabel("Map controls")
     }
 
     private func refreshClusters(region: MKCoordinateRegion) async {
@@ -290,8 +350,8 @@ struct MapScreen: View {
 
     private func labelForPrecision(_ p: ClusterPrecision) -> String {
         switch p {
-        case .country: return "Pins: Countries"
-        case .city: return "Pins: Cities"
+        case .country: return "Countries"
+        case .city: return "Cities"
         }
     }
 
@@ -398,12 +458,40 @@ struct MapScreen: View {
         selectedClusterId = next.id
 
         let center = CLLocationCoordinate2D(latitude: next.centerLat, longitude: next.centerLon)
-        setDesiredRegion(center: center, span: lastRegion.span)
+        
+        // If we are at city level, ensure we zoom in enough to make the city visible
+        var targetSpan = lastRegion.span
+        if precision == .city {
+            let cityZoomThreshold: Double = 1.0
+            if targetSpan.latitudeDelta > cityZoomThreshold {
+                targetSpan = MKCoordinateSpan(latitudeDelta: 0.4, longitudeDelta: 0.4)
+            }
+        }
+        
+        setDesiredRegion(center: center, span: targetSpan)
 
         model.lastIndexSummary = "\(next.title) · \(next.count) photos"
     }
 
     // When we programmatically set region due to user intent (pin nav), treat as manual focus.
+
+    private func switchPrecision(to p: ClusterPrecision) {
+        guard p != precision else { return }
+        
+        // Update precision immediately
+        precision = p
+        
+        // Adjust zoom level to reflect the new precision
+        let span = p == .country ? 
+            MKCoordinateSpan(latitudeDelta: 40.0, longitudeDelta: 40.0) : 
+            MKCoordinateSpan(latitudeDelta: 2.0, longitudeDelta: 2.0)
+            
+        setDesiredRegion(center: lastRegion.center, span: span)
+        
+        Task {
+            await refreshClusters(region: desiredRegion ?? lastRegion)
+        }
+    }
 }
 
 

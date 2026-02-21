@@ -40,6 +40,9 @@ struct SelectedPhotosCartSheet: View {
                         .onMove { from, to in
                             model.moveFootprintDiaryCart(fromOffsets: from, toOffset: to)
                         }
+                        .onDelete { offsets in
+                            model.footprintDiaryCartIds.remove(atOffsets: offsets)
+                        }
                     } header: {
                         Text("Selected (\(model.footprintDiaryCartIds.count))/\(model.footprintDiaryCartLimit)")
                     }

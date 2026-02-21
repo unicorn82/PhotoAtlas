@@ -19,12 +19,14 @@ struct PhotoDetailScreen: View {
     @FocusState private var commentFocused: Bool
 
     var body: some View {
+        let inCart = model.isInFootprintDiaryCart(localId)
+
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 ZStack {
                     Rectangle().fill(.quaternary)
-                    if let image = image {
-                        Image(uiImage: image)
+                    if let uiImage = image {
+                        Image(uiImage: uiImage)
                             .resizable()
                             .scaledToFit()
                     } else {
@@ -33,8 +35,8 @@ struct PhotoDetailScreen: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-                // Favorite + comment
-                HStack(spacing: 10) {
+                // Favorite + card cart
+                HStack(spacing: 12) {
                     Button {
                         Task { await toggleFavorite() }
                     } label: {
@@ -43,6 +45,18 @@ struct PhotoDetailScreen: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(isFavorite ? .yellow : .accentColor)
+
+                    Button {
+                        let ok = model.toggleFootprintDiaryCart(localId)
+                        if !ok && !inCart {
+                            // limit reached (9)
+                        }
+                    } label: {
+                        Label(inCart ? "Added" : "Add to Card", systemImage: inCart ? "plus.circle.fill" : "plus.circle")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(inCart ? .green : .accentColor)
 
                     Spacer()
                 }
@@ -93,6 +107,42 @@ struct PhotoDetailScreen: View {
             .padding()
         }
         .task(id: localId) { await load() }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if let uiImage = image {
+                    // Use a simple share button to avoid ShareLink complex type interference
+                    Button {
+                        shareAction(uiImage)
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+            }
+        }
+    }
+
+    private func shareAction(_ uiImage: UIImage) {
+        let vc = UIActivityViewController(activityItems: [uiImage], applicationActivities: nil)
+        
+        // Find the top-most view controller to present the share sheet
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first(where: { $0.isKeyWindow }) ?? windowScene.windows.first,
+           let rootVC = window.rootViewController {
+            
+            var topVC = rootVC
+            while let presented = topVC.presentedViewController {
+                topVC = presented
+            }
+            
+            // On iPad, we need a source point for the popover
+            if let popover = vc.popoverPresentationController {
+                popover.sourceView = topVC.view
+                popover.sourceRect = CGRect(x: UIScreen.main.bounds.width / 2, y: UIScreen.main.bounds.height / 2, width: 0, height: 0)
+                popover.permittedArrowDirections = []
+            }
+            
+            topVC.present(vc, animated: true)
+        }
     }
 
     private func load() async {

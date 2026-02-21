@@ -108,15 +108,22 @@ private struct TimelineRow: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { onOpen() }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button {
-                guard !isShared else { return }
-                onToggleShare()
-            } label: {
-                Text("Share")
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if isShared {
+                Button(role: .destructive) {
+                    onToggleShare()
+                } label: {
+                    Label("Remove", systemImage: "minus.circle")
+                }
+                .tint(.red)
+            } else {
+                Button {
+                    onToggleShare()
+                } label: {
+                    Label("Share", systemImage: "plus.circle")
+                }
+                .tint(.blue)
             }
-            .tint(.blue)
-            .disabled(isShared)
         }
     }
 

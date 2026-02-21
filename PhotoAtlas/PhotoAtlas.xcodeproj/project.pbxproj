@@ -34,14 +34,14 @@
 
 /* Begin PBXFileReference section */
 		02C0FA5A6739A8923990A17A /* Geohash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Geohash.swift; sourceTree = "<group>"; };
-		0E2C447A4385442660FED67C /* default.csv */ = {isa = PBXFileReference; path = default.csv; sourceTree = "<group>"; };
+		0E2C447A4385442660FED67C /* default.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = default.csv; sourceTree = "<group>"; };
 		25082D2A477F29333EFCB245 /* SQLiteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteStore.swift; sourceTree = "<group>"; };
 		344297226BEBFBD6E311867B /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		4219E3DA582D384245BFD58F /* FootprintDiaryComposerScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FootprintDiaryComposerScreen.swift; sourceTree = "<group>"; };
 		4DC533351C83518A07427E04 /* PhotoAtlasApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoAtlasApp.swift; sourceTree = "<group>"; };
 		4E20AC10AF099D7D5FD6ACB4 /* OfflineMapUIView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineMapUIView.swift; sourceTree = "<group>"; };
 		4E2CE3E9A67619AC823B0A76 /* PhotoDetailScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoDetailScreen.swift; sourceTree = "<group>"; };
-		4FA3719E502551F682CF9438 /* PhotoAtlas.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PhotoAtlas.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4FA3719E502551F682CF9438 /* PhotoAtlas.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PhotoAtlas.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		52F7B87E8263062D33FB05E3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7999082A9FF4E559C1A1560F /* DateFormatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateFormatters.swift; sourceTree = "<group>"; };
 		80CF9F94EA4BEDC1B20279AF /* PhotosIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotosIndexer.swift; sourceTree = "<group>"; };
@@ -134,8 +134,6 @@
 			isa = PBXProject;
 			attributes = {
 				LastUpgradeCheck = 1200;
-				TargetAttributes = {
-				};
 			};
 			buildConfigurationList = 630C3902522E28B95E9FEB87 /* Build configuration list for PBXProject "PhotoAtlas" */;
 			compatibilityVersion = "Xcode 10.0";
@@ -322,6 +320,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = VGV754H345;
 				INFOPLIST_FILE = PhotoAtlas/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.2;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -340,6 +339,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = VGV754H345;
 				INFOPLIST_FILE = PhotoAtlas/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.2;
 				LD_RUNPATH_SEARCH_PATHS = (
