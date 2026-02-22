@@ -55,3 +55,9 @@ This file tracks all modifications made to the codebase starting from February 1
     - Updated `shareAction` to walk the `presentedViewController` chain. This ensures the share sheet is presented from the top-most view (like the pager sheet) rather than the root view, fixing the presentation conflict.
 
 ---
+
+## [2026-02-21 19:00] Fix map snapshot for whole world footprint
+**Requirement**: Make sure the world footprint displays the map for the entire world so that all pins are visible.
+**Files Modified**:
+- `FootprintDiaryComposerScreen.swift`:
+    - Changed `options.region` generation in `generateMapSnapshot` to use `options.mapRect = .world` instead. This ensures MKMapSnapshotter bounds exactly the whole world without truncating.

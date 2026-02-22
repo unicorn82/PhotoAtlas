@@ -6,7 +6,7 @@ struct SelectedPhotosCartSheet: View {
     @EnvironmentObject private var model: AppModel
     @StateObject private var imageLoader = PhotoImageLoader()
 
-    let onShareFootprintDiary: () -> Void
+    let onAlbumFootprintDiary: () -> Void
 
     var body: some View {
         NavigationView {
@@ -44,7 +44,7 @@ struct SelectedPhotosCartSheet: View {
                             model.footprintDiaryCartIds.remove(atOffsets: offsets)
                         }
                     } header: {
-                        Text("Selected (\(model.footprintDiaryCartIds.count))/\(model.footprintDiaryCartLimit)")
+                        Text("Selected (\(model.footprintDiaryCartIds.count))")
                     }
                 }
             }
@@ -66,9 +66,9 @@ struct SelectedPhotosCartSheet: View {
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Share") {
+                    Button("Album") {
                         dismiss()
-                        onShareFootprintDiary()
+                        onAlbumFootprintDiary()
                     }
                 }
             }

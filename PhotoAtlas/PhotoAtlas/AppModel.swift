@@ -12,7 +12,6 @@ final class AppModel: ObservableObject {
     /// Ordered list of selected photo asset ids (PHAsset.localIdentifier).
     /// Used as a lightweight "cart" for building a Footprint Diary share card.
     @Published var footprintDiaryCartIds: [String] = []
-    let footprintDiaryCartLimit: Int = 9
 
     let db: SQLiteStore
     let indexer: PhotosIndexer
@@ -53,11 +52,6 @@ final class AppModel: ObservableObject {
     func toggleFootprintDiaryCart(_ localId: String) -> Bool {
         if let idx = footprintDiaryCartIds.firstIndex(of: localId) {
             footprintDiaryCartIds.remove(at: idx)
-            return false
-        }
-
-        guard footprintDiaryCartIds.count < footprintDiaryCartLimit else {
-            // silently ignore if we're at the limit
             return false
         }
 

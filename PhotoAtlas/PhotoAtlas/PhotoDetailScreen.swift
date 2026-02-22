@@ -52,7 +52,7 @@ struct PhotoDetailScreen: View {
                             // limit reached (9)
                         }
                     } label: {
-                        Label(inCart ? "Added" : "Add to Card", systemImage: inCart ? "plus.circle.fill" : "plus.circle")
+                        Label(inCart ? "Added" : "Add to Album", systemImage: inCart ? "plus.circle.fill" : "plus.circle")
                             .labelStyle(.titleAndIcon)
                     }
                     .buttonStyle(.bordered)

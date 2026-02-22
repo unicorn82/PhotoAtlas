@@ -41,12 +41,12 @@ private struct FavoriteHeader: View {
     }
 }
 
-private struct ShareToolbarLabel: View {
+private struct AlbumToolbarLabel: View {
     let count: Int
 
     var body: some View {
         HStack(spacing: 6) {
-            Text("Share")
+            Text("Album")
                 .font(.footnote.weight(.semibold))
 
             if count > 0 {
@@ -120,7 +120,7 @@ private struct TimelineRow: View {
                 Button {
                     onToggleShare()
                 } label: {
-                    Label("Share", systemImage: "plus.circle")
+                    Label("Album", systemImage: "plus.circle")
                 }
                 .tint(.blue)
             }
@@ -142,7 +142,7 @@ private struct SwipeHintOverlay: View {
             Image(systemName: "hand.draw")
                 .foregroundStyle(.secondary)
 
-            Text("Swipe left on a photo to share")
+            Text("Swipe left on a photo to add to album")
                 .font(.footnote.weight(.semibold))
 
             Image(systemName: "chevron.left")
@@ -208,7 +208,7 @@ struct ClusterTimelineScreen: View {
                 Button {
                     isFootprintDiaryPresented = true
                 } label: {
-                    ShareToolbarLabel(count: model.footprintDiaryCartIds.count)
+                    AlbumToolbarLabel(count: model.footprintDiaryCartIds.count)
                 }
                 .disabled(model.footprintDiaryCartIds.isEmpty)
             }

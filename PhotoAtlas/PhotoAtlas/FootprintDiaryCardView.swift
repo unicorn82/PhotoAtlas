@@ -17,11 +17,70 @@ enum FootprintDiaryCardFormat: String, CaseIterable, Identifiable {
     }
 
     /// Render size (share-friendly).
+    func size(photoCount: Int = 0, layout: FootprintDiaryLayout = .casual) -> CGSize {
+        let baseWidth: CGFloat = (self == .landscape) ? 1350 : 1080
+        let minHeight: CGFloat = (self == .portrait) ? 1350 : 1080
+        
+        // Dynamic height based on content
+        // Fixed elements (Header, Highlights, Footer, Padding) ~ 500pt
+        let fixedHeight: CGFloat = 500
+        let photosHeight: CGFloat
+        
+        if photoCount == 0 {
+            photosHeight = 400
+        } else if photoCount == 1 {
+            photosHeight = 1000
+        } else {
+            switch layout {
+            case .strict:
+                let rows = ceil(Double(photoCount) / 2.0)
+                photosHeight = CGFloat(rows * 456) // 440 height + 16 spacing
+            case .casual:
+                let rows = ceil(Double(photoCount) / 2.0)
+                photosHeight = CGFloat(rows * 460)
+            case .artistic:
+                // Artist layout uses vertical stack with overlap
+                photosHeight = CGFloat(photoCount * 580) // 700 height - 120 overlap
+            case .modern:
+                // Modern mono is single column
+                photosHeight = CGFloat(photoCount * 740) // 700 height + 40 spacing
+            case .vintage:
+                // Vintage is 2 columns with spacing
+                let rows = ceil(Double(photoCount) / 2.0)
+                photosHeight = CGFloat(rows * 640) // 540 ish height + 100 spacing
+            case .minimal:
+                // Minimal is single column with large spacing
+                photosHeight = CGFloat(photoCount * 720) // 600 height + 120 spacing
+            }
+        }
+        
+        let totalHeight = fixedHeight + photosHeight
+        return CGSize(width: baseWidth, height: minHeight > totalHeight ? minHeight : totalHeight)
+    }
+    
     var size: CGSize {
+        return size(photoCount: 0, layout: .casual)
+    }
+}
+
+enum FootprintDiaryLayout: String, CaseIterable, Identifiable {
+    case strict = "Strict"
+    case casual = "Casual"
+    case artistic = "Artistic"
+    case modern = "Modern Mono"
+    case vintage = "Vintage Film"
+    case minimal = "Minimalist"
+    
+    var id: String { rawValue }
+    
+    var description: String {
         switch self {
-        case .portrait: return CGSize(width: 1080, height: 1350)
-        case .square: return CGSize(width: 1080, height: 1080)
-        case .landscape: return CGSize(width: 1350, height: 1080)
+        case .strict: return "Clean, aligned grid layout."
+        case .casual: return "Scrapbook style with gentle offsets."
+        case .artistic: return "Creative overlap and rotating elements."
+        case .modern: return "Bold, full-width single column."
+        case .vintage: return "Classic polaroid look with borders."
+        case .minimal: return "Spacious layout with smaller focus."
         }
     }
 }
@@ -46,6 +105,7 @@ struct FootprintDiaryCardModel: Identifiable {
         let id: String
         let kind: Kind
         let countryName: String
+        let cityNames: [String]
         let count: Int?
         let yearsLine: String?
     }
@@ -79,6 +139,9 @@ struct FootprintDiaryCardModel: Identifiable {
 
     /// Privacy line to display.
     let privacyLine: String
+    
+    /// Layout style
+    var layout: FootprintDiaryLayout = .casual
 }
 
 /// A shareable, diary-style card.
@@ -92,6 +155,7 @@ struct FootprintDiaryCardView: View {
     let model: FootprintDiaryCardModel
 
     var body: some View {
+        let cardSize = format.size(photoCount: model.pickedImages.count, layout: model.layout)
         ZStack {
             background
 
@@ -104,11 +168,13 @@ struct FootprintDiaryCardView: View {
 
                 pickedPhotos
 
+                Spacer()
+
                 footer
             }
             .padding(48)
         }
-        .frame(width: format.size.width, height: format.size.height)
+        .frame(width: cardSize.width, height: cardSize.height)
     }
 
     private var background: some View {
@@ -178,13 +244,13 @@ struct FootprintDiaryCardView: View {
     }
 
     private var highlights: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 16) {
-                ForEach(model.highlights.prefix(5)) { h in
-                    HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 20) {
+            ForEach(model.highlights.prefix(5)) { h in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
                         Text(h.countryName)
-                            .font(.system(size: 24, weight: .black, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.9))
+                            .font(.system(size: 38, weight: .black, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.96))
                         
                         if let count = h.count {
                             Text("\(count)")
@@ -196,10 +262,13 @@ struct FootprintDiaryCardView: View {
                                 .clipShape(Capsule())
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 14)
-                    .background(.white.opacity(0.08))
-                    .clipShape(Capsule())
+                    
+                    if !h.cityNames.isEmpty {
+                        Text(h.cityNames.joined(separator: " • "))
+                            .font(.system(size: 22, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .padding(.leading, 4)
+                    }
                 }
             }
         }
@@ -255,7 +324,7 @@ struct FootprintDiaryCardView: View {
                     Image(systemName: "photo.on.rectangle.angled")
                         .font(.system(size: 80))
                         .foregroundStyle(.white.opacity(0.15))
-                    Text("Select up to 9 photos to showcase your footprint.")
+                    Text("Select photos to showcase your footprint.")
                         .font(.system(size: 28, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.4))
                 }
@@ -272,40 +341,146 @@ struct FootprintDiaryCardView: View {
     @ViewBuilder
     private func photoLayout(imgs: [UIImage]) -> some View {
         let count = imgs.count
+        
+        switch model.layout {
+        case .strict:
+            strictLayout(imgs: imgs)
+        case .casual:
+            casualLayout(imgs: imgs)
+        case .artistic:
+            artisticLayout(imgs: imgs)
+        case .modern:
+            modernLayout(imgs: imgs)
+        case .vintage:
+            vintageLayout(imgs: imgs)
+        case .minimal:
+            minimalLayout(imgs: imgs)
+        }
+    }
+
+    @ViewBuilder
+    private func strictLayout(imgs: [UIImage]) -> some View {
+        let count = imgs.count
         if count == 1 {
-            singleImageLayout(img: imgs[0], index: 0)
-        } else if count == 2 {
-            HStack(spacing: 16) {
-                ForEach(0..<2) { i in
-                    imageTile(img: imgs[i], index: i)
-                }
-            }
-            .frame(height: 850)
-        } else if count == 3 {
-            HStack(spacing: 16) {
-                imageTile(img: imgs[0], index: 0)
-                VStack(spacing: 16) {
-                    imageTile(img: imgs[1], index: 1)
-                    imageTile(img: imgs[2], index: 2)
-                }
-            }
-            .frame(height: 900)
+            imageTile(img: imgs[0], index: 0)
+                .frame(height: 1000)
         } else {
-            // Grid for 4-9 images
-            let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: count <= 4 ? 2 : 3)
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 2)
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(0..<count, id: \.self) { i in
                     imageTile(img: imgs[i], index: i)
-                        .frame(height: count <= 6 ? 440 : 340)
+                        .frame(height: 440)
                 }
             }
         }
     }
 
-    private func singleImageLayout(img: UIImage, index: Int) -> some View {
-        imageTile(img: img, index: index)
-            .frame(height: 1000)
+    @ViewBuilder
+    private func casualLayout(imgs: [UIImage]) -> some View {
+        let count = imgs.count
+        if count == 1 {
+            let img = imgs[0]
+            let isPortrait = img.size.height > img.size.width
+            imageTile(img: img, index: 0)
+                .frame(height: isPortrait ? 1200 : 800)
+        } else {
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 20), count: 2)
+            LazyVGrid(columns: columns, spacing: 32) {
+                ForEach(0..<count, id: \.self) { i in
+                    let img = imgs[i]
+                    let isPortrait = img.size.height > img.size.width
+                    imageTile(img: img, index: i)
+                        .frame(height: isPortrait ? 550 : 420)
+                        .rotationEffect(.degrees(Double(i % 5) - 2.0))
+                        .offset(y: i % 3 == 0 ? -15 : 0)
+                }
+            }
+        }
     }
+
+    @ViewBuilder
+    private func artisticLayout(imgs: [UIImage]) -> some View {
+        let count = imgs.count
+        if count == 1 {
+            imageTile(img: imgs[0], index: 0)
+                .frame(height: 1000)
+                .rotationEffect(.degrees(5))
+                .shadow(radius: 10)
+        } else {
+            VStack(spacing: -120) { // Purposeful overlap
+                ForEach(0..<count, id: \.self) { i in
+                    let isEven = i % 2 == 0
+                    HStack {
+                        if !isEven { Spacer() }
+                        imageTile(img: imgs[i], index: i)
+                            .frame(width: 700, height: 700)
+                            .rotationEffect(.degrees(Double(i % 3 == 0 ? 6 : -6)))
+                            .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 12)
+                            .zIndex(Double(i))
+                        if isEven { Spacer() }
+                    }
+                    .padding(.horizontal, 20)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func modernLayout(imgs: [UIImage]) -> some View {
+        VStack(spacing: 40) {
+            ForEach(0..<imgs.count, id: \.self) { i in
+                imageTile(img: imgs[i], index: i)
+                    .frame(height: 700)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func vintageLayout(imgs: [UIImage]) -> some View {
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 40), count: 2)
+        LazyVGrid(columns: columns, spacing: 60) {
+            ForEach(0..<imgs.count, id: \.self) { i in
+                vintageTile(img: imgs[i], index: i)
+            }
+        }
+    }
+
+    private func vintageTile(img: UIImage, index: Int) -> some View {
+        VStack(spacing: 20) {
+            Image(uiImage: img)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 440, height: 440)
+                .clipped()
+                .border(Color.white, width: 12)
+            
+            if index < model.pickedCaptions.count && !model.pickedCaptions[index].isEmpty {
+                Text(model.pickedCaptions[index])
+                    .font(.system(size: 24, weight: .medium, design: .serif))
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+        }
+        .padding(20)
+        .background(Color.white.opacity(0.05))
+        .rotationEffect(.degrees(Double(index % 2 == 0 ? 2 : -2)))
+    }
+
+    @ViewBuilder
+    private func minimalLayout(imgs: [UIImage]) -> some View {
+        VStack(spacing: 120) {
+            ForEach(0..<imgs.count, id: \.self) { i in
+                HStack {
+                    if i % 2 != 0 { Spacer() }
+                    imageTile(img: imgs[i], index: i)
+                        .frame(width: 600, height: 600)
+                    if i % 2 == 0 { Spacer() }
+                }
+            }
+        }
+        .padding(.vertical, 40)
+    }
+
 
     private func imageTile(img: UIImage, index: Int) -> some View {
         VStack(alignment: .leading, spacing: 12) {

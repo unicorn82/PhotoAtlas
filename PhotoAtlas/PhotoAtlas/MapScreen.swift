@@ -533,33 +533,39 @@ final class UserLocationManager: NSObject, ObservableObject, CLLocationManagerDe
         }
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        continuation?.resume(returning: locations.last)
-        continuation = nil
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        Task { @MainActor in
+            continuation?.resume(returning: locations.last)
+            continuation = nil
+        }
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        continuation?.resume(returning: nil)
-        continuation = nil
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in
+            continuation?.resume(returning: nil)
+            continuation = nil
+        }
     }
 
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        // If user just granted permission (incl. “Allow Once”), kick off the one-shot request.
-        guard continuation != nil else { return }
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            // If user just granted permission (incl. “Allow Once”), kick off the one-shot request.
+            guard continuation != nil else { return }
 
-        let status = manager.authorizationStatus
-        switch status {
-        case .authorizedWhenInUse, .authorizedAlways:
-            manager.desiredAccuracy = kCLLocationAccuracyKilometer
-            manager.requestLocation()
-        case .denied, .restricted:
-            continuation?.resume(returning: nil)
-            continuation = nil
-        case .notDetermined:
-            break
-        @unknown default:
-            continuation?.resume(returning: nil)
-            continuation = nil
+            let status = manager.authorizationStatus
+            switch status {
+            case .authorizedWhenInUse, .authorizedAlways:
+                manager.desiredAccuracy = kCLLocationAccuracyKilometer
+                manager.requestLocation()
+            case .denied, .restricted:
+                continuation?.resume(returning: nil)
+                continuation = nil
+            case .notDetermined:
+                break
+            @unknown default:
+                continuation?.resume(returning: nil)
+                continuation = nil
+            }
         }
     }
 }
@@ -656,7 +662,7 @@ private struct MapActionsSheet: View {
                         dismiss()
                     }
 
-                    Button("Share Footprint Diary") {
+                    Button("Album Footprint Diary") {
                         // Keep the sheet open/close behavior consistent.
                         NotificationCenter.default.post(name: .openFootprintDiaryComposer, object: nil)
                         dismiss()

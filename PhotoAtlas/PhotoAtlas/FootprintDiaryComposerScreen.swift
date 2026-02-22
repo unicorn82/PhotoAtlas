@@ -40,6 +40,7 @@ struct FootprintDiaryComposerScreen: View {
 
     @AppStorage("footprintDiary.format") private var storedFormat: String = FootprintDiaryCardFormat.portrait.rawValue
     @State private var format: FootprintDiaryCardFormat = .portrait
+    @State private var layout: FootprintDiaryLayout = .casual
 
     @State private var pickedPhotos: [SelectedPhoto] = []
     @State private var pickedCaptions: [String] = []
@@ -48,11 +49,12 @@ struct FootprintDiaryComposerScreen: View {
     @State private var summary: CountryDiarySummary? = nil
     @State private var errorText: String? = nil
 
-    @State private var renderedShareURL: URL? = nil
-    @State private var renderedShareImage: UIImage? = nil
-    @State private var isRendering: Bool = false
+    @State private var renderedAlbumURL: URL? = nil
+    @State private var renderedAlbumImage: UIImage? = nil
+    @State private var isRendering = false
 
-    @State private var isShareSheetPresented: Bool = false
+    @State private var isAlbumSheetPresented: Bool = false
+    @State private var isSlideshowPresented: Bool = false
 
     @State private var fullPreviewModel: FootprintDiaryCardModel? = nil
 
@@ -69,6 +71,7 @@ struct FootprintDiaryComposerScreen: View {
     @State private var visitedContinents: [String] = [] // Populated from summary/clusters
     @State private var mapSnapshot: UIImage?
     @State private var mapPointForCoord: ((CLLocationCoordinate2D) -> CGPoint)?
+    @State private var activeSnapshotter: MKMapSnapshotter? = nil
 
     var body: some View {
         NavigationView {
@@ -82,7 +85,7 @@ struct FootprintDiaryComposerScreen: View {
                 Section {
                     preview
                 } header: {
-                    Text("Preview")
+                    previewHeader
                 }
 
                 if style == .classic {
@@ -107,36 +110,22 @@ struct FootprintDiaryComposerScreen: View {
             .navigationTitle("Footprint")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task {
-                            await prepareShare()
-                            isShareSheetPresented = true
-                        }
-                    } label: {
-                        if isRendering {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                    }
-                    .disabled(isRendering || summary == nil)
-                }
+                toolbarContent
             }
-            .sheet(isPresented: $isShareSheetPresented) {
+            .sheet(isPresented: $isAlbumSheetPresented) {
                 let items: [Any] = {
-                    if let url = renderedShareURL { return [url] }
-                    if let img = renderedShareImage { return [img] }
+                    if let url = renderedAlbumURL { return [url] }
+                    if let img = renderedAlbumImage { return [img] }
                     return []
                 }()
                 ActivityShareSheet(items: items)
             }
             .fullScreenCover(item: $fullPreviewModel) { model in
                 FullScreenCardPreview(format: format, model: model, style: style)
+            }
+            .fullScreenCover(isPresented: $isSlideshowPresented) {
+                SlideshowScreen(images: pickedPhotos.map { $0.previewImage }, 
+                                captions: pickedCaptions)
             }
             .task {
                 if let f = FootprintDiaryCardFormat(rawValue: storedFormat) {
@@ -171,8 +160,8 @@ struct FootprintDiaryComposerScreen: View {
             }
             .onChange(of: format) { newValue in
                 storedFormat = newValue.rawValue
-                renderedShareURL = nil
-                renderedShareImage = nil
+                renderedAlbumURL = nil
+                renderedAlbumImage = nil
                 if style == .worldFootprint {
                     generateMapSnapshot()
                 }
@@ -186,6 +175,50 @@ struct FootprintDiaryComposerScreen: View {
             .onChange(of: showCities) { _ in updateCardModel() }
             .onChange(of: mapSnapshot) { _ in updateCardModel() }
             .onChange(of: visitedCities.count) { _ in updateCardModel() }
+            .onChange(of: layout) { _ in updateCardModel() }
+        }
+    }
+
+    private var previewHeader: some View {
+        HStack {
+            Text("Preview")
+            Spacer()
+            if !pickedPhotos.isEmpty {
+                Button {
+                    isSlideshowPresented = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "play.circle.fill")
+                        Text("Slideshow")
+                    }
+                    .font(.caption.bold())
+                    .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Done") { dismiss() }
+        }
+
+        ToolbarItem(placement: .confirmationAction) {
+            Button {
+                Task {
+                    await prepareAlbum()
+                    isAlbumSheetPresented = true
+                }
+            } label: {
+                if isRendering {
+                    ProgressView()
+                } else {
+                    Image(systemName: "square.and.arrow.up")
+                }
+            }
+            .disabled(isRendering || summary == nil)
         }
     }
 
@@ -239,14 +272,33 @@ struct FootprintDiaryComposerScreen: View {
                 }
                 .pickerStyle(.segmented)
             }
+
+            if style == .classic {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Layout")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                Picker("Layout", selection: $layout) {
+                    ForEach(FootprintDiaryLayout.allCases) { l in
+                        Text(l.rawValue).tag(l)
+                    }
+                }
+                .pickerStyle(.menu)
+                
+                Text(layout.description)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            }
         }
     }
 
     private var preview: some View {
         VStack(alignment: .center, spacing: 10) {
-            ResponsivePreviewCard(format: format) {
+            ResponsivePreviewCard(format: format, photoCount: pickedPhotos.count, layout: layout, style: style) {
                 if let cardModel = currentCardModel {
-                    AnyView(
+                    let cardSize = (style == .classic) ? format.size(photoCount: cardModel.pickedImages.count, layout: cardModel.layout) : format.size
+                    return AnyView(
                         Group {
                             if style == .classic {
                                 FootprintDiaryCardView(format: format, model: cardModel)
@@ -262,7 +314,8 @@ struct FootprintDiaryComposerScreen: View {
                         .accessibilityAddTraits(.isButton)
                     )
                 } else {
-                    AnyView(ProgressView().frame(width: format.size.width, height: format.size.height))
+                    let cardSize = format.size
+                    return AnyView(ProgressView().frame(width: cardSize.width, height: cardSize.height))
                 }
             }
             .padding(.vertical, 8)
@@ -292,8 +345,8 @@ struct FootprintDiaryComposerScreen: View {
                         set: { newValue in
                             ensureCaptionsCapacity()
                             pickedCaptions[idx] = newValue
-                            renderedShareURL = nil
-                            renderedShareImage = nil
+                            renderedAlbumURL = nil
+                            renderedAlbumImage = nil
                             updateCardModel()
                         }
                     ))
@@ -397,6 +450,7 @@ struct FootprintDiaryComposerScreen: View {
                         id: $0.id,
                         kind: FootprintDiaryCardModel.Highlight.Kind(rawValue: $0.kindRaw) ?? .mostPhotographed,
                         countryName: $0.countryName,
+                        cityNames: [], // No cities in summary highlights yet
                         count: $0.count,
                         yearsLine: $0.yearsLine
                     )
@@ -422,6 +476,7 @@ struct FootprintDiaryComposerScreen: View {
             model.visitedContinents = visitedContinents
             model.mapSnapshot = mapSnapshot
             model.mapPointForCoord = mapPointForCoord
+            model.layout = layout
             return model
         } else {
             // style == .classic ("Footprint")
@@ -436,27 +491,28 @@ struct FootprintDiaryComposerScreen: View {
             
             var highlights: [FootprintDiaryCardModel.Highlight] = []
             
-            // 1) Countries as badges
-            if showCountries {
-                let pickedCountries = pickedPhotos.compactMap { $0.countryName }
-                let countryCounts = pickedCountries.reduce(into: [:]) { counts, name in
-                    counts[name, default: 0] += 1
-                }
-                let uniqueCountries = countryCounts.keys.sorted { countryCounts[$0]! > countryCounts[$1]! }
-                
-                highlights.append(contentsOf: uniqueCountries.map { name in
-                    FootprintDiaryCardModel.Highlight(
-                        id: "country:\(name)",
-                        kind: .mostPhotographed,
-                        countryName: name,
-                        count: countryCounts[name],
-                        yearsLine: nil
-                    )
-                })
+            // Group cities by country
+            let photosByCountry = Dictionary(grouping: pickedPhotos) { $0.countryName ?? "Unknown" }
+            let sortedCountries = photosByCountry.keys.sorted { (lhs, rhs) -> Bool in
+                (photosByCountry[lhs]?.count ?? 0) > (photosByCountry[rhs]?.count ?? 0)
             }
-            
-            // 2) Cities as badges
-            if showCities {
+
+            if showCountries {
+                for country in sortedCountries {
+                    let photos = photosByCountry[country] ?? []
+                    let cities = Set(photos.compactMap { $0.cityName }).sorted()
+                    
+                    highlights.append(FootprintDiaryCardModel.Highlight(
+                        id: "country:\(country)",
+                        kind: .mostPhotographed,
+                        countryName: country,
+                        cityNames: showCities ? cities : [],
+                        count: photos.count,
+                        yearsLine: nil
+                    ))
+                }
+            } else if showCities {
+                // If only cities, show them as top level
                 let pickedCities = pickedPhotos.compactMap { $0.cityName }
                 let cityCounts = pickedCities.reduce(into: [:]) { counts, name in
                     counts[name, default: 0] += 1
@@ -467,7 +523,8 @@ struct FootprintDiaryComposerScreen: View {
                     FootprintDiaryCardModel.Highlight(
                         id: "city:\(name)",
                         kind: .mostPhotographed,
-                        countryName: name, // Reuse field for city name display
+                        countryName: name, 
+                        cityNames: [],
                         count: cityCounts[name],
                         yearsLine: nil
                     )
@@ -488,12 +545,13 @@ struct FootprintDiaryComposerScreen: View {
             model.showYears = showYears
             model.showCountries = showCountries
             model.showCities = showCities
+            model.layout = layout
             return model
         }
     }
 
     @MainActor
-    private func prepareShare() async {
+    private func prepareAlbum() async {
         guard summary != nil else { return }
         isRendering = true
         defer { isRendering = false }
@@ -513,13 +571,13 @@ struct FootprintDiaryComposerScreen: View {
 
         do {
             let image = try renderCardImage(format: format, model: cardModel)
-            renderedShareImage = image
+            renderedAlbumImage = image
 
             // Also write a PNG for apps that prefer URLs.
-            let url = try writePNGToTemporaryFile(image: image, fileName: "FootprintDiary-\(format.rawValue).png")
-            renderedShareURL = url
+            let url = try writePNGToTemporaryFile(image: image, fileName: "FootprintAlbum-\(format.rawValue).png")
+            renderedAlbumURL = url
         } catch {
-            errorText = "Couldn’t prepare share: \(error.localizedDescription)"
+            errorText = "Couldn’t prepare album: \(error.localizedDescription)"
         }
     }
 
@@ -542,7 +600,7 @@ struct FootprintDiaryComposerScreen: View {
 
     private func renderCardImage(format: FootprintDiaryCardFormat, model: FootprintDiaryCardModel, scale: CGFloat = 1) throws -> UIImage {
         let clampedScale = max(0.1, min(1, scale))
-        let originalSize = format.size
+        let originalSize = (style == .classic) ? format.size(photoCount: model.pickedImages.count, layout: model.layout) : format.size
         let targetSize = CGSize(width: floor(originalSize.width * clampedScale), height: floor(originalSize.height * clampedScale))
 
         // Render smaller for interactive preview to keep taps snappy.
@@ -588,36 +646,46 @@ struct FootprintDiaryComposerScreen: View {
 
     private func loadWorldFootprintData() async {
         do {
-            if visitedCities.isEmpty {
-                let clusters = try await model.db.clusters(in: .world, precision: .city)
-                let top20 = clusters.sorted { $0.count > $1.count }.prefix(20)
-                await MainActor.run {
-                    self.visitedCities = Array(top20)
+            // 1. Get global clusters from DB (Country level)
+            let globalCountryClusters = try await model.db.clusters(in: .world, precision: .country)
+            
+            // 2. Get countries from currently picked photos
+            var pickedCountries: [ClusterBubble] = []
+            var seenCountries = Set<String>()
+            
+            for photo in pickedPhotos {
+                if let loc = photo.asset.location, let name = photo.countryName {
+                    if !seenCountries.contains(name) {
+                        pickedCountries.append(ClusterBubble(
+                            id: "picked_country:\(name)",
+                            title: name,
+                            count: 1,
+                            centerLat: loc.coordinate.latitude,
+                            centerLon: loc.coordinate.longitude
+                        ))
+                        seenCountries.insert(name)
+                    }
                 }
             }
             
-            if mapSnapshot == nil {
-                generateMapSnapshot()
+            // 3. Merge: prioritize picked countries, then add top global ones
+            let combined = (pickedCountries + globalCountryClusters.filter { !seenCountries.contains($0.title) })
+                .sorted { $0.count > $1.count }
+                .prefix(30)
+            
+            await MainActor.run {
+                self.visitedCities = Array(combined) // We reuse visitedCities property for "Locations to Pin"
             }
+            
 
-            // Infer continents from cities if needed
-            if visitedContinents.isEmpty && !visitedCities.isEmpty {
-                let calculatedContinents = Set(visitedCities.map { city -> String in
-                    let lat = city.centerLat
-                    let lon = city.centerLon
-                    
-                    if lat > 12 && lon < -30 { return "North America" }
-                    if lat <= 12 && lon < -30 { return "South America" }
-                    if lat > 35 && lon >= -30 && lon < 45 { return "Europe" }
-                    if lat <= 35 && lon >= -20 && lon < 60 { return "Africa" }
-                    if lat <= -10 && lon > 100 { return "Oceania" }
-                    if lon >= 45 { return "Asia" }
-                    return "Unknown"
-                })
-                let finalContinents = Array(calculatedContinents.filter { $0 != "Unknown" }).sorted()
-                await MainActor.run {
-                    self.visitedContinents = finalContinents
-                }
+
+            // After updating visitedCities, ensure the map reflects the latest pins
+            await MainActor.run {
+                self.mapSnapshot = nil
+                print("[Debug] visitedCities count: \(self.visitedCities.count)")
+            }
+            if !self.visitedCities.isEmpty {
+                generateMapSnapshot()
             }
         } catch {
             print("Failed to load world footprint: \(error)")
@@ -625,59 +693,84 @@ struct FootprintDiaryComposerScreen: View {
     }
 
     private func generateMapSnapshot() {
+        // Cancel any pending snapshot to avoid concurrent Metal operations
+        activeSnapshotter?.cancel()
+        
         let options = MKMapSnapshotter.Options()
-        // World region
-        options.region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 20, longitude: 0), span: MKCoordinateSpan(latitudeDelta: 120, longitudeDelta: 360))
-        // Match the card format size for accurate pin projection
+        
+        // Always show the full world map for "World Footprint"
+        options.mapRect = .world
+        
+        let locations = self.visitedCities
+        
         options.size = format.size
-        options.mapType = .mutedStandard
-        // options.pointOfInterestFilter = .excludingAll 
-
-        let cities = self.visitedCities // Capture
+        options.mapType = .standard
+        
         let snapshotter = MKMapSnapshotter(options: options)
+        self.activeSnapshotter = snapshotter
+        
         snapshotter.start { snapshot, error in
+            defer { 
+                if self.activeSnapshotter === snapshotter {
+                    self.activeSnapshotter = nil 
+                }
+            }
+            
             guard let snapshot = snapshot else { return }
             
-            // Draw pins directly into the image to ensure perfect alignment forever
+            
             let renderer = UIGraphicsImageRenderer(size: options.size)
             let resultImage = renderer.image { ctx in
-                snapshot.image.draw(at: .zero)
+                // Use the CGImage to help avoid Metal/GPU resource lifetime issues
+                if let cgImage = snapshot.image.cgImage {
+                    let rect = CGRect(origin: .zero, size: options.size)
+                    ctx.cgContext.saveGState()
+                    ctx.cgContext.translateBy(x: 0, y: options.size.height)
+                    ctx.cgContext.scaleBy(x: 1, y: -1)
+                    ctx.cgContext.draw(cgImage, in: rect)
+                    ctx.cgContext.restoreGState()
+                } else {
+                    snapshot.image.draw(at: .zero)
+                }
                 
-                let attributes: [NSAttributedString.Key: Any] = [
-                    .font: UIFont.boldSystemFont(ofSize: 32), // Increased size for high-res card
+                let titleAttr: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 28, weight: .bold),
                     .foregroundColor: UIColor.black
                 ]
                 
-                for city in cities {
-                    let point = snapshot.point(for: CLLocationCoordinate2D(latitude: city.centerLat, longitude: city.centerLon))
+                for loc in locations {
+                    let point = snapshot.point(for: CLLocationCoordinate2D(latitude: loc.centerLat, longitude: loc.centerLon))
                     
-                    // Draw a robust red pin dot with larger shadow/outline
-                    let dotSize: CGFloat = 24
-                    let dotRect = CGRect(x: point.x - dotSize/2, y: point.y - dotSize/2, width: dotSize, height: dotSize)
+                    // Pin shadow
+                    ctx.cgContext.setFillColor(UIColor.black.withAlphaComponent(0.2).cgColor)
+                    ctx.cgContext.fillEllipse(in: CGRect(x: point.x - 12, y: point.y - 12, width: 24, height: 24).offsetBy(dx: 2, dy: 4))
                     
+                    // Pin body (white outline)
                     ctx.cgContext.setFillColor(UIColor.white.cgColor)
-                    ctx.cgContext.fillEllipse(in: dotRect.insetBy(dx: -6, dy: -6))
-                    ctx.cgContext.setFillColor(UIColor.systemRed.cgColor)
-                    ctx.cgContext.fillEllipse(in: dotRect)
+                    ctx.cgContext.fillEllipse(in: CGRect(x: point.x - 18, y: point.y - 18, width: 36, height: 36))
                     
-                    // Draw city label
-                    let label = city.title as NSString
-                    let size = label.size(withAttributes: attributes)
+                    // Pin center (vibrant orange/red)
+                    ctx.cgContext.setFillColor(UIColor.systemOrange.cgColor)
+                    ctx.cgContext.fillEllipse(in: CGRect(x: point.x - 12, y: point.y - 12, width: 24, height: 24))
                     
-                    // Label background (pill style)
-                    let labelRect = CGRect(x: point.x - size.width/2 - 12, y: point.y + 20, width: size.width + 24, height: size.height + 8)
-                    ctx.cgContext.setFillColor(UIColor.white.withAlphaComponent(0.9).cgColor)
-                    let path = UIBezierPath(roundedRect: labelRect, cornerRadius: 10)
-                    ctx.cgContext.addPath(path.cgPath)
+                    // Label
+                    let label = loc.title as NSString
+                    let size = label.size(withAttributes: titleAttr)
+                    let labelRect = CGRect(x: point.x - size.width/2 - 12, y: point.y + 24, width: size.width + 24, height: size.height + 10)
+                    
+                    // Label background
+                    ctx.cgContext.setFillColor(UIColor.white.withAlphaComponent(0.95).cgColor)
+                    let labelPath = UIBezierPath(roundedRect: labelRect, cornerRadius: 8)
+                    ctx.cgContext.addPath(labelPath.cgPath)
                     ctx.cgContext.fillPath()
                     
-                    // Label stroke
-                    ctx.cgContext.setStrokeColor(UIColor.black.withAlphaComponent(0.1).cgColor)
-                    ctx.cgContext.setLineWidth(1)
-                    ctx.cgContext.addPath(path.cgPath)
+                    // Label border
+                    ctx.cgContext.setStrokeColor(UIColor.black.withAlphaComponent(0.15).cgColor)
+                    ctx.cgContext.setLineWidth(1.5)
+                    ctx.cgContext.addPath(labelPath.cgPath)
                     ctx.cgContext.strokePath()
                     
-                    label.draw(at: CGPoint(x: point.x - size.width/2, y: point.y + 24), withAttributes: attributes)
+                    label.draw(at: CGPoint(x: point.x - size.width/2, y: point.y + 28), withAttributes: titleAttr)
                 }
             }
 
@@ -693,9 +786,16 @@ struct FootprintDiaryComposerScreen: View {
 
 private struct ResponsivePreviewCard: View {
     let format: FootprintDiaryCardFormat
+    let photoCount: Int
+    let layout: FootprintDiaryLayout
+    let style: FootprintDiaryStyle
     let content: () -> AnyView
 
     @State private var availableWidth: CGFloat = 0
+
+    private var cardSize: CGSize {
+        (style == .classic) ? format.size(photoCount: photoCount, layout: layout) : format.size
+    }
 
     var body: some View {
         VStack {
@@ -704,11 +804,11 @@ private struct ResponsivePreviewCard: View {
                 // Use the *actual* available width for layout so the preview fills the page.
                 // (Using a larger "previewWidth" than the container can cause odd sizing/clipping.)
                 let previewWidth = outerWidth
-                let previewHeight = previewWidth * (format.size.height / format.size.width)
-                let scale = previewWidth / format.size.width
+                let previewHeight = previewWidth * (cardSize.height / cardSize.width)
+                let scale = previewWidth / cardSize.width
 
                 content()
-                    .frame(width: format.size.width, height: format.size.height)
+                    .frame(width: cardSize.width, height: cardSize.height)
                     .scaleEffect(scale, anchor: .topLeading)
                     .frame(width: previewWidth, height: previewHeight, alignment: .topLeading)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -722,7 +822,7 @@ private struct ResponsivePreviewCard: View {
                         availableWidth = newValue
                     }
             }
-            .frame(height: max(220, max(240, availableWidth) * (format.size.height / format.size.width)))
+            .frame(height: max(220, max(240, availableWidth) * (cardSize.height / cardSize.width)))
         }
         .frame(maxWidth: .infinity)
     }
@@ -741,13 +841,14 @@ private struct FullScreenCardPreview: View {
     @State private var lastScale: CGFloat = 1
 
     var body: some View {
+        let cardSize = (style == .classic) ? format.size(photoCount: model.pickedImages.count, layout: model.layout) : format.size
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
 
             GeometryReader { geo in
                 // Calculate fit scale
-                let sW = geo.size.width / format.size.width
-                let fitScale = min(geo.size.width / format.size.width, geo.size.height / format.size.height) * 0.95
+                let sW = geo.size.width / cardSize.width
+                let fitScale = min(geo.size.width / cardSize.width, geo.size.height / cardSize.height) * 0.95
                 let currentScale = fitScale * scale
 
                 ScrollView([.horizontal, .vertical], showsIndicators: false) {
@@ -759,10 +860,10 @@ private struct FullScreenCardPreview: View {
                                 WorldFootprintCardView(format: format, model: model)
                             }
                         }
-                        .frame(width: format.size.width, height: format.size.height)
+                        .frame(width: cardSize.width, height: cardSize.height)
                         .scaleEffect(currentScale, anchor: .center)
-                        .frame(width: max(geo.size.width, format.size.width * currentScale), 
-                               height: max(geo.size.height, format.size.height * currentScale))
+                        .frame(width: max(geo.size.width, cardSize.width * currentScale), 
+                               height: max(geo.size.height, cardSize.height * currentScale))
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -800,6 +901,103 @@ private struct FullScreenCardPreview: View {
                     .clipShape(Circle())
             }
             .padding(16)
+        }
+    }
+}
+
+struct SlideshowScreen: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    let images: [UIImage]
+    let captions: [String]
+    
+    @State private var currentIndex = 0
+    @State private var isPlaying = true
+    @State private var timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
+    
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            TabView(selection: $currentIndex) {
+                ForEach(0..<images.count, id: \.self) { i in
+                    ZStack {
+                        Image(uiImage: images[i])
+                            .resizable()
+                            .scaledToFit()
+                            .tag(i)
+                        
+                        VStack {
+                            Spacer()
+                            if i < captions.count && !captions[i].isEmpty {
+                                Text(captions[i])
+                                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 24)
+                                    .padding(.vertical, 12)
+                                    .background(.black.opacity(0.6))
+                                    .clipShape(Capsule())
+                                    .padding(.bottom, 60)
+                            }
+                        }
+                    }
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .onReceive(timer) { _ in
+                if isPlaying {
+                    withAnimation(.easeInOut(duration: 0.8)) {
+                        currentIndex = (currentIndex + 1) % images.count
+                    }
+                }
+            }
+            .onTapGesture {
+                isPlaying.toggle()
+            }
+            
+            // Progress Bar
+            VStack {
+                HStack(spacing: 4) {
+                    ForEach(0..<images.count, id: \.self) { i in
+                        Rectangle()
+                            .fill(i == currentIndex ? Color.white : Color.white.opacity(0.3))
+                            .frame(height: 3)
+                            .animation(.spring(), value: currentIndex)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
+                
+                HStack {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 20, weight: .bold))
+                            .padding(12)
+                            .background(.black.opacity(0.5))
+                            .clipShape(Circle())
+                            .foregroundStyle(.white)
+                    }
+                    .padding()
+                    
+                    Spacer()
+                    
+                    Button {
+                        isPlaying.toggle()
+                    } label: {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 20, weight: .bold))
+                            .padding(12)
+                            .background(.black.opacity(0.5))
+                            .clipShape(Circle())
+                            .foregroundStyle(.white)
+                    }
+                    .padding()
+                }
+                
+                Spacer()
+            }
         }
     }
 }
