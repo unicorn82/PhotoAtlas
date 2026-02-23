@@ -40,6 +40,16 @@ struct FootprintDiaryComposerScreen: View {
 
     @AppStorage("footprintDiary.format") private var storedFormat: String = FootprintDiaryCardFormat.portrait.rawValue
     @State private var format: FootprintDiaryCardFormat = .portrait
+
+    /// World Footprint should always be rendered in landscape to avoid cropping the world map.
+    private var effectiveFormat: FootprintDiaryCardFormat {
+        style == .worldFootprint ? .landscape : format
+    }
+
+    /// When launched from the airplane button, we want a dedicated World Footprint UI (no tabs/options).
+    private var isWorldFootprintOnly: Bool {
+        initialStyle == .worldFootprint
+    }
     @State private var layout: FootprintDiaryLayout = .casual
 
     @State private var pickedPhotos: [SelectedPhoto] = []
@@ -70,10 +80,19 @@ struct FootprintDiaryComposerScreen: View {
     @State private var visitedCities: [ClusterBubble] = []
     @State private var visitedContinents: [String] = [] // Populated from summary/clusters
     @State private var mapSnapshot: UIImage?
+    @State private var mapOverlaySize: CGSize = .zero
     @State private var mapPointForCoord: ((CLLocationCoordinate2D) -> CGPoint)?
     @State private var activeSnapshotter: MKMapSnapshotter? = nil
 
     var body: some View {
+        if isWorldFootprintOnly {
+            worldFootprintOnlyView
+        } else {
+            classicComposerView
+        }
+    }
+
+    private var classicComposerView: some View {
         NavigationView {
             List {
                 Section {
@@ -107,11 +126,9 @@ struct FootprintDiaryComposerScreen: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle("Footprint")
+            .navigationTitle(style == .worldFootprint ? "World Footprint" : "Footprint")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                toolbarContent
-            }
+            .toolbar { toolbarContent }
             .sheet(isPresented: $isAlbumSheetPresented) {
                 let items: [Any] = {
                     if let url = renderedAlbumURL { return [url] }
@@ -121,33 +138,20 @@ struct FootprintDiaryComposerScreen: View {
                 ActivityShareSheet(items: items)
             }
             .fullScreenCover(item: $fullPreviewModel) { model in
-                FullScreenCardPreview(format: format, model: model, style: style)
+                FullScreenCardPreview(format: effectiveFormat, model: model, style: style)
             }
             .fullScreenCover(isPresented: $isSlideshowPresented) {
-                SlideshowScreen(images: pickedPhotos.map { $0.previewImage }, 
-                                captions: pickedCaptions)
+                SlideshowScreen(images: pickedPhotos.map { $0.previewImage }, captions: pickedCaptions)
             }
             .task {
-                if let f = FootprintDiaryCardFormat(rawValue: storedFormat) {
-                    format = f
-                } else {
-                    format = .portrait
-                }
-
-                // Preload from the timeline cart if provided.
-                if !initialSelectedAssetIds.isEmpty, pickedPhotos.isEmpty {
-                    let photos = await loadPhotos(localIds: initialSelectedAssetIds)
-                    pickedPhotos = photos
-                    // Transfer comments from photos to captions
-                    pickedCaptions = photos.map { $0.comment ?? "" }
-                }
-
-                await loadSummaryIfNeeded()
-                updateCardModel()
+                // Classic composer is Footprint-only.
+                style = .classic
+                await initialLoad()
             }
             .onChange(of: style) { newStyle in
                 cardTitle = newStyle.rawValue
                 if newStyle == .worldFootprint {
+                    format = .landscape
                     Task { await loadWorldFootprintData() }
                 }
                 updateCardModel()
@@ -159,12 +163,12 @@ struct FootprintDiaryComposerScreen: View {
                 updateCardModel()
             }
             .onChange(of: format) { newValue in
-                storedFormat = newValue.rawValue
+                if style != .worldFootprint {
+                    storedFormat = newValue.rawValue
+                }
                 renderedAlbumURL = nil
                 renderedAlbumImage = nil
-                if style == .worldFootprint {
-                    generateMapSnapshot()
-                }
+                if style == .worldFootprint { generateMapSnapshot() }
                 updateCardModel()
             }
             .onChange(of: pickedPhotos.count) { _ in updateCardModel() }
@@ -177,6 +181,67 @@ struct FootprintDiaryComposerScreen: View {
             .onChange(of: visitedCities.count) { _ in updateCardModel() }
             .onChange(of: layout) { _ in updateCardModel() }
         }
+    }
+
+    private var worldFootprintOnlyView: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                // Use the existing preview card (already landscape-only via effectiveFormat).
+                preview
+                    .padding(.top, 8)
+
+                Spacer(minLength: 0)
+            }
+            .navigationTitle("World Footprint")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { toolbarContent }
+            .sheet(isPresented: $isAlbumSheetPresented) {
+                let items: [Any] = {
+                    if let url = renderedAlbumURL { return [url] }
+                    if let img = renderedAlbumImage { return [img] }
+                    return []
+                }()
+                ActivityShareSheet(items: items)
+            }
+            .fullScreenCover(item: $fullPreviewModel) { model in
+                FullScreenCardPreview(format: effectiveFormat, model: model, style: style)
+            }
+            .task {
+                // Hard lock this screen to World Footprint.
+                style = .worldFootprint
+                format = .landscape
+                cardTitle = "My Travel Footprint"
+                showYears = false
+                showCountries = false
+                showCities = false
+
+                await initialLoad()
+                await loadWorldFootprintData()
+                updateCardModel()
+            }
+        }
+    }
+
+    @MainActor
+    private func initialLoad() async {
+        if let f = FootprintDiaryCardFormat(rawValue: storedFormat) {
+            format = f
+        } else {
+            format = .portrait
+        }
+
+        if style == .worldFootprint {
+            format = .landscape
+        }
+
+        if !initialSelectedAssetIds.isEmpty, pickedPhotos.isEmpty {
+            let photos = await loadPhotos(localIds: initialSelectedAssetIds)
+            pickedPhotos = photos
+            pickedCaptions = photos.map { $0.comment ?? "" }
+        }
+
+        await loadSummaryIfNeeded()
+        updateCardModel()
     }
 
     private var previewHeader: some View {
@@ -235,69 +300,66 @@ struct FootprintDiaryComposerScreen: View {
 
     private var configPanel: some View {
         Group {
-            TextField("Card Title", text: $cardTitle)
-            
-            HStack {
-                Text("Show")
-                Spacer()
-                HStack(spacing: 8) {
-                    Toggle("Years", isOn: $showYears)
-                    Toggle("Countries", isOn: $showCountries)
-                    Toggle("Cities", isOn: $showCities)
-                }
-                .toggleStyle(.button)
-                .controlSize(.mini)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Style")
-                    .font(.caption)
+            // Dedicated World Footprint UI (airplane entry): no title/format/style/toggles.
+            if style == .worldFootprint && isWorldFootprintOnly {
+                Text("Your travel footprint, rendered as a single landscape card.")
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
-                Picker("Style", selection: $style) {
-                    ForEach(FootprintDiaryStyle.allCases) { s in
-                        Text(s.rawValue).tag(s)
-                    }
-                }
-                .pickerStyle(.segmented)
-            }
+            } else {
+                TextField("Card Title", text: $cardTitle)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Format")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Picker("Format", selection: $format) {
-                    ForEach(FootprintDiaryCardFormat.allCases) { f in
-                        Text(f.title).tag(f)
+                HStack {
+                    Text("Show")
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Toggle("Years", isOn: $showYears)
+                        Toggle("Countries", isOn: $showCountries)
+                        Toggle("Cities", isOn: $showCities)
                     }
+                    .toggleStyle(.button)
+                    .controlSize(.mini)
                 }
-                .pickerStyle(.segmented)
-            }
 
-            if style == .classic {
+                // Style picker removed: Footprint and World Footprint are separate screens.
+
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Layout")
+                    Text("Format")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                Picker("Layout", selection: $layout) {
-                    ForEach(FootprintDiaryLayout.allCases) { l in
-                        Text(l.rawValue).tag(l)
+                    Picker("Format", selection: $format) {
+                        ForEach(FootprintDiaryCardFormat.allCases) { f in
+                            Text(f.title).tag(f)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                if style == .classic {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Layout")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("Layout", selection: $layout) {
+                            ForEach(FootprintDiaryLayout.allCases) { l in
+                                Text(l.rawValue).tag(l)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        Text(layout.description)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .pickerStyle(.menu)
-                
-                Text(layout.description)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
             }
         }
     }
 
     private var preview: some View {
         VStack(alignment: .center, spacing: 10) {
-            ResponsivePreviewCard(format: format, photoCount: pickedPhotos.count, layout: layout, style: style) {
+            ResponsivePreviewCard(format: effectiveFormat, photoCount: pickedPhotos.count, layout: layout, style: style) {
                 if let cardModel = currentCardModel {
-                    let cardSize = (style == .classic) ? format.size(photoCount: cardModel.pickedImages.count, layout: cardModel.layout) : format.size
+                    let cardSize = (style == .classic) ? effectiveFormat.size(photoCount: cardModel.pickedImages.count, layout: cardModel.layout) : effectiveFormat.size
                     return AnyView(
                         Group {
                             if style == .classic {
@@ -320,7 +382,7 @@ struct FootprintDiaryComposerScreen: View {
             }
             .padding(.vertical, 8)
 
-            if format == .landscape {
+            if format == .landscape && style != .worldFootprint {
                 Text("Tip: rotate your phone to landscape to preview this format.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -475,6 +537,7 @@ struct FootprintDiaryComposerScreen: View {
             model.visitedCities = visitedCities
             model.visitedContinents = visitedContinents
             model.mapSnapshot = mapSnapshot
+            model.mapOverlaySize = mapOverlaySize
             model.mapPointForCoord = mapPointForCoord
             model.layout = layout
             return model
@@ -570,7 +633,7 @@ struct FootprintDiaryComposerScreen: View {
         cardModel.pickedImages = fullImages
 
         do {
-            let image = try renderCardImage(format: format, model: cardModel)
+            let image = try renderCardImage(format: effectiveFormat, model: cardModel)
             renderedAlbumImage = image
 
             // Also write a PNG for apps that prefer URLs.
@@ -679,32 +742,129 @@ struct FootprintDiaryComposerScreen: View {
             
 
 
-            // After updating visitedCities, ensure the map reflects the latest pins
+            // After updating pinned locations, ensure the map reflects the latest state.
+            // Even if there are *no* photos (and thus no pins), we still want to show a full-world map.
             await MainActor.run {
                 self.mapSnapshot = nil
-                print("[Debug] visitedCities count: \(self.visitedCities.count)")
             }
-            if !self.visitedCities.isEmpty {
-                generateMapSnapshot()
-            }
+            generateMapSnapshot()
         } catch {
             print("Failed to load world footprint: \(error)")
         }
     }
 
     private func generateMapSnapshot() {
+        // World Footprint now uses a static full-world rectangular equirectangular image
+        // (asset: WorldMapBorderRect). We compute a lat/lon -> pixel projection closure.
+        // IMPORTANT: projection assumes a 2:1 map (width = 2 * height).
+        if style == .worldFootprint {
+            let baseSize = CGSize(width: 2048, height: 1024)
+
+            func projectEquirectangular(_ coord: CLLocationCoordinate2D) -> CGPoint {
+                let lon = coord.longitude
+                let lat = coord.latitude
+                let x = (lon + 180.0) / 360.0 * baseSize.width
+                let y = (90.0 - lat) / 180.0 * baseSize.height
+                return CGPoint(x: x, y: y)
+            }
+
+            // For World Footprint we don't need MapKit snapshots anymore; just populate the projection.
+            // Also store the "base" overlay size so the view can scale points into its GeometryReader.
+            self.mapOverlaySize = baseSize
+            self.mapPointForCoord = projectEquirectangular
+            self.mapSnapshot = nil
+            return
+        }
+
         // Cancel any pending snapshot to avoid concurrent Metal operations
         activeSnapshotter?.cancel()
         
         let options = MKMapSnapshotter.Options()
         
-        // Always show the full world map for "World Footprint"
-        options.mapRect = .world
-        
         let locations = self.visitedCities
-        
-        options.size = format.size
+
+        // Helpers for handling longitudes across the dateline.
+        func normalizeLon(_ lon: CLLocationDegrees) -> CLLocationDegrees {
+            var x = lon.truncatingRemainder(dividingBy: 360)
+            if x < -180 { x += 360 }
+            if x > 180 { x -= 360 }
+            return x
+        }
+
+        /// Pick a center longitude that minimizes the wrap discontinuity for a set of longitudes.
+        func bestCenterLongitude(for lons: [CLLocationDegrees]) -> CLLocationDegrees {
+            guard !lons.isEmpty else { return 0 }
+            let sorted = lons.sorted()
+            if sorted.count == 1 { return sorted[0] }
+
+            // Consider the largest gap in the circular list; the opposite side of that gap is a good window.
+            var bestGap: CLLocationDegrees = -1
+            var bestIndex: Int = 0
+            for i in 0..<sorted.count {
+                let a = sorted[i]
+                let b = (i == sorted.count - 1) ? (sorted[0] + 360) : sorted[i + 1]
+                let gap = b - a
+                if gap > bestGap {
+                    bestGap = gap
+                    bestIndex = i
+                }
+            }
+
+            let start = sorted[(bestIndex + 1) % sorted.count]
+            let end = sorted[bestIndex] + 360
+            let center = (start + end) / 2
+            return normalizeLon(center)
+        }
+
+        /// Minimal covering longitudinal span in degrees (0...360) for a set of longitudes.
+        func minimalCoveringLonSpan(for lons: [CLLocationDegrees]) -> CLLocationDegrees {
+            guard !lons.isEmpty else { return 0 }
+            let sorted = lons.sorted()
+            if sorted.count == 1 { return 0 }
+
+            var bestGap: CLLocationDegrees = -1
+            for i in 0..<sorted.count {
+                let a = sorted[i]
+                let b = (i == sorted.count - 1) ? (sorted[0] + 360) : sorted[i + 1]
+                bestGap = max(bestGap, b - a)
+            }
+            // If best gap is large, the minimal covering span is the remainder of the circle.
+            let span = max(0, 360 - bestGap)
+            return min(360, span)
+        }
+
+        // Option B: Keep MapKit styling but "show as much as possible" by centering the map
+        // around the user’s pins (handles dateline wrap) and choosing an aspect-aware span.
+        // Note: MapKit snapshots are not guaranteed to show a true 360° wrap in one image.
+        let centerLon: CLLocationDegrees = {
+            let lons = locations.map { normalizeLon($0.centerLon) }
+            guard !lons.isEmpty else { return 0 }
+            return bestCenterLongitude(for: lons)
+        }()
+
+        // Always render the world map snapshot in landscape.
+        options.size = FootprintDiaryCardFormat.landscape.size
         options.mapType = .standard
+
+        let aspect = options.size.width / max(options.size.height, 1)
+
+        // Compute the smallest longitudinal window covering all points (with padding),
+        // then clamp to a reasonable maximum because MapKit will clamp anyway.
+        let lonDelta: CLLocationDegrees = {
+            let lons = locations.map { normalizeLon($0.centerLon) }
+            guard !lons.isEmpty else { return 200 }
+            let window = minimalCoveringLonSpan(for: lons) // 0...360
+            let padded = min(360, window + 40)
+            return max(120, min(220, padded))
+        }()
+
+        // Aspect-aware latitude delta so we don’t crop longitudes too aggressively.
+        let latDelta: CLLocationDegrees = max(90, min(170, lonDelta / max(aspect, 0.1)))
+
+        options.region = MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 0, longitude: centerLon),
+            span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
+        )
         
         let snapshotter = MKMapSnapshotter(options: options)
         self.activeSnapshotter = snapshotter

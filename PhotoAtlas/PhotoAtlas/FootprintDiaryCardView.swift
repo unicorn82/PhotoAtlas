@@ -523,6 +523,9 @@ struct WorldFootprintCardView: View {
     let format: FootprintDiaryCardFormat
     let model: FootprintDiaryCardModel
 
+    /// Border-only rectangular equirectangular world map asset (static, full-world in one frame).
+    private let mapImageName = "WorldMapBorderRect"
+
     var body: some View {
         ZStack {
             // Paper texture background
@@ -565,13 +568,87 @@ struct WorldFootprintCardView: View {
 
                     // Map Area
                     ZStack {
-                        if let snap = model.mapSnapshot {
-                            Image(uiImage: snap)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        } else {
-                            Rectangle().fill(Color(red: 0.85, green: 0.92, blue: 0.97))
-                                .overlay(Text("Loading Map...").foregroundStyle(.secondary))
+                        // Use a static border-only world map so the entire globe is always visible.
+                        Image(mapImageName)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+
+                        // If we have pins, draw them using the same projection we’ll use in the renderer.
+                        // (For now, keep it simple: only draw pins when a projection closure is present.)
+                        if let pointForCoord = model.mapPointForCoord {
+                            GeometryReader { geo in
+                                Canvas { ctx, size in
+                                    for (idx, loc) in model.visitedCities.enumerated() {
+                                        let p = pointForCoord(CLLocationCoordinate2D(latitude: loc.centerLat, longitude: loc.centerLon))
+                                        // Scale from snapshot-space into current map area.
+                                        // We assume pointForCoord was built for the same base size as the exported map.
+                                        // This is "good enough" for country-level pins.
+                                        let x = p.x / max(model.mapOverlaySize.width, 1) * size.width
+                                        let y = p.y / max(model.mapOverlaySize.height, 1) * size.height
+
+                                        let center = CGPoint(x: x, y: y)
+                                        let r: CGFloat = 7
+
+                                        // shadow
+                                        ctx.fill(
+                                            Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r + 2, width: r * 2, height: r * 2)),
+                                            with: .color(.black.opacity(0.2))
+                                        )
+
+                                        // pin
+                                        ctx.fill(
+                                            Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)),
+                                            with: .color(.orange)
+                                        )
+                                        ctx.stroke(
+                                            Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)),
+                                            with: .color(.white),
+                                            lineWidth: 2
+                                        )
+
+                                        // Country label
+                                        let label = loc.title
+                                        guard !label.isEmpty else { continue }
+
+                                        // Stagger labels slightly so they don’t all sit on the same baseline.
+                                        let yStagger = CGFloat((idx % 3) - 1) * 10
+
+                                        let text = Text(label)
+                                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                            .foregroundColor(.black.opacity(0.85))
+
+                                        let resolved = ctx.resolve(text)
+                                        let labelSize = resolved.measure(in: size)
+
+                                        let paddingX: CGFloat = 6
+                                        let paddingY: CGFloat = 3
+
+                                        var boxRect = CGRect(
+                                            x: center.x - labelSize.width / 2 - paddingX,
+                                            y: center.y - r - 10 - labelSize.height - paddingY + yStagger,
+                                            width: labelSize.width + paddingX * 2,
+                                            height: labelSize.height + paddingY * 2
+                                        )
+
+                                        // Clamp inside map bounds.
+                                        boxRect.origin.x = min(max(2, boxRect.origin.x), size.width - boxRect.width - 2)
+                                        boxRect.origin.y = min(max(2, boxRect.origin.y), size.height - boxRect.height - 2)
+
+                                        let boxPath = Path(roundedRect: boxRect, cornerRadius: 6)
+                                        ctx.fill(boxPath, with: .color(.white.opacity(0.85)))
+                                        ctx.stroke(boxPath, with: .color(.black.opacity(0.08)), lineWidth: 1)
+
+                                        ctx.draw(
+                                            resolved,
+                                            at: CGPoint(x: boxRect.midX, y: boxRect.midY),
+                                            anchor: .center
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -594,7 +671,7 @@ struct WorldFootprintCardView: View {
                                     .foregroundStyle(continentColor(cont))
                                 Text(cont)
                                     .font(.system(size: 16, weight: .medium, design: .rounded))
-                                    .foregroundStyle(.primary.opacity(0.8))
+                                    .foregroundStyle(Color.primary.opacity(0.8))
                             }
                         }
                     }

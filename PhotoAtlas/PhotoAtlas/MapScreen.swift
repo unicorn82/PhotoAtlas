@@ -29,7 +29,8 @@ struct MapScreen: View {
     @State private var refreshTask: Task<Void, Never>? = nil
 
     @State private var showPhotosPermissionPrimer: Bool = false
-    @State private var showFootprintDiary: Bool = false
+    @State private var showFootprintComposer: Bool = false
+    @State private var showWorldFootprint: Bool = false
     @State private var composerRequestedStyle: FootprintDiaryStyle = .classic
 
     /// Prevent automatic re-focusing after the user has manually navigated the map.
@@ -84,7 +85,13 @@ struct MapScreen: View {
                 } else {
                     composerRequestedStyle = .classic
                 }
-                showFootprintDiary = true
+
+                // Split into 2 independent UIs.
+                if composerRequestedStyle == .worldFootprint {
+                    showWorldFootprint = true
+                } else {
+                    showFootprintComposer = true
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -165,8 +172,14 @@ struct MapScreen: View {
                     }
                 )
             }
-            .sheet(isPresented: $showFootprintDiary) {
-                FootprintDiaryComposerScreen(initialStyle: composerRequestedStyle)
+            .sheet(isPresented: $showFootprintComposer) {
+                // Classic Footprint only (no style switcher).
+                FootprintDiaryComposerScreen(initialStyle: .classic)
+                    .environmentObject(model)
+            }
+            .sheet(isPresented: $showWorldFootprint) {
+                // World Footprint only (clean dedicated UI).
+                FootprintDiaryComposerScreen(initialStyle: .worldFootprint)
                     .environmentObject(model)
             }
             .task {
@@ -229,7 +242,8 @@ struct MapScreen: View {
                 // Action Group
                 HStack(spacing: 10) {
                     Button {
-                        NotificationCenter.default.post(name: .openFootprintDiaryComposer, object: FootprintDiaryStyle.worldFootprint)
+                        // Open the World Footprint dedicated UI directly.
+                        showWorldFootprint = true
                     } label: {
                         Image(systemName: "airplane")
                             .font(.headline)
