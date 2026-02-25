@@ -87,14 +87,6 @@ final class AppModel: ObservableObject {
     /// - First time (no prior index): do a full reindex.
     /// - Subsequent runs: incremental index based on DB latest imported timestamp.
     func autoIndexIfPossible() async {
-        // Reset progress for this run.
-        isIndexing = true
-        indexProgress = 0
-        indexProgressText = nil
-        defer {
-            isIndexing = false
-        }
-
         do {
             refreshAuthorization()
 
@@ -108,6 +100,14 @@ final class AppModel: ObservableObject {
             guard authorization == .authorized || authorization == .limited else {
                 lastIndexSummary = "Photos access not granted."
                 return
+            }
+
+            // Reset progress for this run (only after we know we are actually indexing).
+            isIndexing = true
+            indexProgress = 0
+            indexProgressText = nil
+            defer {
+                isIndexing = false
             }
 
             let didInitial = defaults.bool(forKey: didInitialIndexKey)
