@@ -132,13 +132,13 @@ final class PhotosIndexer {
 
     /// Full wipe + rebuild.
     /// Use only for initial bootstrap / debugging.
-    func fullReindex(onProgress: (@MainActor @Sendable (_ doneGPS: Int, _ totalGPS: Int) -> Void)? = nil) async throws -> IndexResult {
+    func fullReindex(onProgress: ((_ doneGPS: Int, _ totalGPS: Int) -> Void)? = nil) async throws -> IndexResult {
         try await store.resetAll()
         return try await index(fetchOptions: nil, onProgress: onProgress)
     }
 
     /// Incremental index: fetch only assets created/modified since the given date.
-    func incrementalIndex(since date: Date, onProgress: (@MainActor @Sendable (_ doneGPS: Int, _ totalGPS: Int) -> Void)? = nil) async throws -> IndexResult {
+    func incrementalIndex(since date: Date, onProgress: ((_ doneGPS: Int, _ totalGPS: Int) -> Void)? = nil) async throws -> IndexResult {
         let opts = PHFetchOptions()
         // Include edits (location metadata can change) as well as new photos.
         opts.predicate = NSPredicate(format: "(creationDate > %@) OR (modificationDate > %@)", date as NSDate, date as NSDate)
@@ -149,7 +149,7 @@ final class PhotosIndexer {
 
     // MARK: - Shared implementation
 
-    private func index(fetchOptions: PHFetchOptions?, onProgress: (@MainActor @Sendable (_ doneGPS: Int, _ totalGPS: Int) -> Void)?) async throws -> IndexResult {
+    private func index(fetchOptions: PHFetchOptions?, onProgress: ((_ doneGPS: Int, _ totalGPS: Int) -> Void)?) async throws -> IndexResult {
         let fetchResult = PHAsset.fetchAssets(with: PHAssetMediaType.image, options: fetchOptions)
 
         // Pre-scan to compute total GPS photos so the percent reliably reaches 100%.
@@ -166,19 +166,17 @@ final class PhotosIndexer {
 
         // Progress throttling: emit at most every 0.2s, plus always emit on completion.
         var lastEmit = Date.distantPast
-        func emitIfNeeded(force: Bool = false) async {
+        func emitIfNeeded(force: Bool = false) {
             guard let cb = onProgress else { return }
             let now = Date()
             if force || now.timeIntervalSince(lastEmit) > 0.2 {
                 lastEmit = now
-                await MainActor.run {
-                    cb(doneGPS, totalGPS)
-                }
+                cb(doneGPS, totalGPS)
             }
         }
 
         // Emit initial progress (covers totalGPS == 0 too).
-        await emitIfNeeded(force: true)
+        emitIfNeeded(force: true)
 
         // Enumerate directly; no need to materialize an array (keeps memory down on large libraries).
         for i in 0..<fetchResult.count {
@@ -210,13 +208,11 @@ final class PhotosIndexer {
             try await store.upsert(record)
 
             doneGPS += 1
-            await emitIfNeeded(force: doneGPS == totalGPS)
+            emitIfNeeded(force: doneGPS == totalGPS)
         }
 
-        // Ensure we end at 100% (and also emit a final update for totalGPS == 0).
-        if doneGPS != totalGPS {
-            await emitIfNeeded(force: true)
-        }
+        // Ensure final 100% callback if we had no GPS photos (or loop didn't force).
+        emitIfNeeded(force: true)
 
         return IndexResult(assetsIndexed: indexed, withLocation: withLocation)
     }
