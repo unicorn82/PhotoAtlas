@@ -7,6 +7,14 @@ final class AppModel: ObservableObject {
     @Published var authorization: PHAuthorizationStatus = .notDetermined
     @Published var lastIndexSummary: String? = nil
 
+    // MARK: - Indexing progress (automatic indexing)
+
+    @Published var isIndexing: Bool = false
+    /// 0...1
+    @Published var indexProgress: Double = 0
+    /// e.g. "123/456" (GPS photos processed / total GPS photos)
+    @Published var indexProgressText: String? = nil
+
     // MARK: - Footprint Diary cart (ordered)
 
     /// Ordered list of selected photo asset ids (PHAsset.localIdentifier).
@@ -79,6 +87,14 @@ final class AppModel: ObservableObject {
     /// - First time (no prior index): do a full reindex.
     /// - Subsequent runs: incremental index based on DB latest imported timestamp.
     func autoIndexIfPossible() async {
+        // Reset progress for this run.
+        isIndexing = true
+        indexProgress = 0
+        indexProgressText = nil
+        defer {
+            isIndexing = false
+        }
+
         do {
             refreshAuthorization()
 
