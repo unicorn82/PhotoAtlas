@@ -171,8 +171,10 @@ final class PhotosIndexer {
             let now = Date()
             if force || now.timeIntervalSince(lastEmit) > 0.2 {
                 lastEmit = now
+                let done = doneGPS
+                let total = totalGPS
                 await MainActor.run {
-                    cb(doneGPS, totalGPS)
+                    cb(done, total)
                 }
             }
         }
