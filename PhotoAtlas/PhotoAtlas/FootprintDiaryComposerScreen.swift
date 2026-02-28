@@ -306,11 +306,25 @@ struct FootprintDiaryComposerScreen: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
-                TextField("Card Title", text: $cardTitle)
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text("Title")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 60, alignment: .leading)
 
-                HStack {
+                    TextField("Footprint", text: $cardTitle)
+                        .textInputAutocapitalization(.words)
+                        .disableAutocorrection(true)
+                }
+
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text("Show")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 60, alignment: .leading)
+
                     Spacer()
+
                     HStack(spacing: 8) {
                         Toggle("Years", isOn: $showYears)
                         Toggle("Countries", isOn: $showCountries)
@@ -552,6 +566,11 @@ struct FootprintDiaryComposerScreen: View {
                 return y1 == y2 ? "\(y1)" : "\(y1)–\(y2)"
             }()
             
+            let effectiveTitle: String = {
+                let trimmed = cardTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? "Footprint" : trimmed
+            }()
+
             var highlights: [FootprintDiaryCardModel.Highlight] = []
             
             // Group cities by country
@@ -595,7 +614,7 @@ struct FootprintDiaryComposerScreen: View {
             }
             
             var model = FootprintDiaryCardModel(
-                title: cardTitle,
+                title: effectiveTitle,
                 dateRange: dateRange,
                 countriesCount: Set(pickedPhotos.compactMap { $0.countryName }).count,
                 citiesCount: Set(pickedPhotos.compactMap { $0.cityName }).count,
