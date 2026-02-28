@@ -120,10 +120,10 @@ final class AppModel: ObservableObject {
                 defaults.set(true, forKey: didInitialIndexKey)
                 lastIndexSummary = "Indexed \(result.assetsIndexed) assets (\(result.withLocation) with GPS)."
             } else {
-                if let maxImportedTs = try await db.latestImportedTs() {
-                    let since = Date(timeIntervalSince1970: maxImportedTs)
+                if let maxCreationTs = try await db.latestCreationTs() {
+                    let since = Date(timeIntervalSince1970: maxCreationTs)
                     result = try await indexer.incrementalIndex(since: since)
-                    lastIndexSummary = "Indexed \(result.assetsIndexed) new/changed assets (\(result.withLocation) with GPS)."
+                    lastIndexSummary = "Indexed \(result.assetsIndexed) new assets (\(result.withLocation) with GPS)."
                 } else {
                     result = try await indexer.fullReindex()
                     lastIndexSummary = "Indexed \(result.assetsIndexed) assets (\(result.withLocation) with GPS)."

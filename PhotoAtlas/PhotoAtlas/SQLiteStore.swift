@@ -199,9 +199,30 @@ actor SQLiteStore {
     /// Latest time we imported/indexed any photo into the DB.
     /// Use this to drive incremental indexing on next app launch.
     func latestImportedTs() throws -> Double? {
+        // NOTE: this is kept for debugging/metrics, but should not be used to drive incremental indexing.
+        // See `latestCreationTs()` for the correct "new photos only" incremental anchor.
+
         guard let db = db else { throw SQLiteError.notOpen }
 
         let sql = "SELECT MAX(imported_ts) FROM photos;"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) != SQLITE_OK {
+            throw SQLiteError.prepareFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        if sqlite3_column_type(stmt, 0) == SQLITE_NULL { return nil }
+        return sqlite3_column_double(stmt, 0)
+    }
+
+    /// Latest creation timestamp among indexed photos.
+    /// Used as the anchor for "new photos only" incremental indexing.
+    func latestCreationTs() throws -> Double? {
+        guard let db = db else { throw SQLiteError.notOpen }
+
+        let sql = "SELECT MAX(creation_ts) FROM photos WHERE creation_ts IS NOT NULL;"
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
 

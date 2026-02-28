@@ -5,6 +5,7 @@ import CoreLocation
 
 struct MapScreen: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var clusters: [ClusterBubble] = []
     @State private var precision: ClusterPrecision = .country
@@ -36,6 +37,7 @@ struct MapScreen: View {
     /// Prevent automatic re-focusing after the user has manually navigated the map.
     @State private var didInitialAutoFocus: Bool = false
     @State private var userHasManuallyFocused: Bool = false
+    @State private var pendingInitialFocusAfterPhotosAuth: Bool = false
 
     var body: some View {
         NavigationView {
@@ -93,35 +95,6 @@ struct MapScreen: View {
                     showFootprintComposer = true
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Menu {
-                        Button {
-                            switchPrecision(to: .country)
-                        } label: {
-                            Label("Countries", systemImage: "globe")
-                        }
-                        
-                        Button {
-                            switchPrecision(to: .city)
-                        } label: {
-                            Label("Cities", systemImage: "building.2")
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(labelForPrecision(precision))
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 9, weight: .bold))
-                        }
-                        .font(.footnote.bold())
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.regularMaterial)
-                        .clipShape(Capsule())
-                    }
-                }
-            }
             .sheet(isPresented: $isMenuPresented) {
                 MapActionsSheet(
                     summary: model.lastIndexSummary,
@@ -161,14 +134,16 @@ struct MapScreen: View {
             .sheet(isPresented: $showPhotosPermissionPrimer) {
                 PhotosPermissionPrimerSheet(
                     onContinue: {
-                        Task {
+                        // IMPORTANT: iOS won’t reliably show multiple permission prompts back-to-back.
+                        // We request Photos now, and defer the initial location focus until *after*
+                        // Photos authorization resolves.
+                        pendingInitialFocusAfterPhotosAuth = true
+
+                        Task { @MainActor in
                             await model.requestPhotosAccess()
                             await model.autoIndexIfPossible()
                             await refreshClusters(region: lastRegion)
                         }
-                    },
-                    onNotNow: {
-                        // User can still explore the map; pins may be empty until access granted.
                     }
                 )
             }
@@ -194,13 +169,36 @@ struct MapScreen: View {
 
                 await refreshClusters(region: lastRegion)
 
-                // Ask for user location early; if denied, we’ll fall back to “photos centroid”.
-                // But:
-                // - only do this once
-                // - never override a user-chosen focus
-                // - never prompt for Location permission while we're still asking for Photos permission
-                if !didInitialAutoFocus && !userHasManuallyFocused && model.authorization != .notDetermined {
-                    didInitialAutoFocus = true
+                // Focus on the user's current location on every app launch.
+                // We still avoid prompting for Location permission while Photos permission is undecided.
+                if model.authorization != .notDetermined {
+                    await requestInitialFocusIfNeeded()
+                }
+            }
+            .onChange(of: model.authorization) { newAuth in
+                // If we started with Photos permission undetermined, the primer handles requesting it.
+                // After the user responds, run initial focus (which may request Location permission).
+                guard pendingInitialFocusAfterPhotosAuth else { return }
+                guard newAuth != .notDetermined else { return }
+                guard !didInitialAutoFocus && !userHasManuallyFocused else {
+                    pendingInitialFocusAfterPhotosAuth = false
+                    return
+                }
+
+                pendingInitialFocusAfterPhotosAuth = false
+                didInitialAutoFocus = true
+
+                Task { @MainActor in
+                    await requestInitialFocusIfNeeded()
+                }
+            }
+            .onChange(of: scenePhase) { phase in
+                // `.task` runs once per view lifetime. If the user backgrounds + reopens the app,
+                // we still want to re-focus when becoming active.
+                guard phase == .active else { return }
+                guard model.authorization != .notDetermined else { return }
+
+                Task { @MainActor in
                     await requestInitialFocusIfNeeded()
                 }
             }
@@ -241,11 +239,40 @@ struct MapScreen: View {
             HStack(spacing: 12) {
                 // Action Group
                 HStack(spacing: 10) {
+                    Menu {
+                        Button {
+                            switchPrecision(to: .country)
+                        } label: {
+                            Label("Countries", systemImage: "globe")
+                        }
+
+                        Button {
+                            switchPrecision(to: .city)
+                        } label: {
+                            Label("Cities", systemImage: "building.2")
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(labelForPrecision(precision))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        .font(.footnote.bold())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .frame(height: 44)
+                        .background(.regularMaterial)
+                        .clipShape(Capsule())
+                    }
+                    .accessibilityLabel("Map Mode")
+                    .accessibilityValue(labelForPrecision(precision))
+
                     Button {
                         // Open the World Footprint dedicated UI directly.
                         showWorldFootprint = true
                     } label: {
-                        Image(systemName: "airplane")
+                        Image(systemName: "globe.americas.fill")
                             .font(.headline)
                             .frame(width: 44, height: 44)
                     }
@@ -381,7 +408,13 @@ struct MapScreen: View {
 
     private func requestInitialFocusIfNeeded() async {
         // Ask location permission early; if user denies, fall back.
+        // On device, location can occasionally fail on the very first request after launch.
+        // Retry once after a short delay before falling back to photos.
         if await focusMe() { return }
+
+        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+        if await focusMe() { return }
+
         await focusPhotos()
     }
 
@@ -593,32 +626,58 @@ struct NavCluster: Identifiable {
 
 private struct PhotosPermissionPrimerSheet: View {
     let onContinue: () -> Void
-    let onNotNow: () -> Void
 
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationView {
             VStack(alignment: .leading, spacing: 14) {
+                // App mark
+                HStack {
+                    Spacer()
+                    Image("AppMark")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 56, height: 56)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 6)
+                    Spacer()
+                }
+                .padding(.top, 6)
+
                 Text("Allow Photos Access")
                     .font(.title2.bold())
 
-                Text("Footprint Atlas builds your personal photo map by reading photo date + embedded GPS.")
+                Text("Photo Atlas builds your personal photo map from the locations already stored in your photos.")
                     .foregroundStyle(.secondary)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("On-device only. We do not upload your photo library.", systemImage: "iphone")
-                    Label("No account. No cloud. No selling or sharing of your photos.", systemImage: "lock.fill")
-                    Label("You can change this anytime in Settings.", systemImage: "gearshape")
+                // Privacy card
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Privacy")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("On-device only. Your library never leaves your phone.", systemImage: "iphone")
+                        Label("No account. No cloud. No selling.", systemImage: "lock.fill")
+                        Label("You can change this anytime in Settings.", systemImage: "gearshape")
+                    }
+                    .font(.subheadline)
                 }
-                .font(.subheadline)
+                .padding(12)
+                .background(.regularMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                 Divider().padding(.vertical, 2)
 
                 Text("Recommended: Full Access")
                     .font(.headline)
 
-                Text("Choosing Full Access lets us index all photos with locations. If you choose Limited Access, pins may be missing.")
+                Text("Full Access lets Photo Atlas index all location photos. With Limited Access, some pins may be missing.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -632,15 +691,6 @@ private struct PhotosPermissionPrimerSheet: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-
-                Button {
-                    onNotNow()
-                    dismiss()
-                } label: {
-                    Text("Not Now")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
             }
             .padding(16)
             .navigationBarTitleDisplayMode(.inline)

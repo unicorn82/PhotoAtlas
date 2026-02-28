@@ -50,7 +50,7 @@ struct FootprintDiaryComposerScreen: View {
     private var isWorldFootprintOnly: Bool {
         initialStyle == .worldFootprint
     }
-    @State private var layout: FootprintDiaryLayout = .casual
+    @State private var layout: FootprintDiaryLayout = .strict
 
     @State private var pickedPhotos: [SelectedPhoto] = []
     @State private var pickedCaptions: [String] = []
@@ -687,11 +687,24 @@ struct FootprintDiaryComposerScreen: View {
         controller.view.setNeedsLayout()
         controller.view.layoutIfNeeded()
 
-        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        controller.loadViewIfNeeded()
+
+        // SwiftUI views rendered offscreen can come back blank if we only use layer.render.
+        // drawHierarchy more faithfully snapshots SwiftUI-backed layers; keep layer.render as fallback.
+        let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = UIScreen.main.scale
+        fmt.opaque = true
+
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: fmt)
         return renderer.image { ctx in
-            // Use layer.render to avoid "has not been rendered" warnings from drawHierarchy.
-            // This is also typically faster for offscreen snapshotting.
-            controller.view.layer.render(in: ctx.cgContext)
+            // Fill a solid background so targets that ignore alpha don't show black/empty.
+            UIColor.systemBackground.setFill()
+            ctx.fill(CGRect(origin: .zero, size: targetSize))
+
+            let ok = controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+            if !ok {
+                controller.view.layer.render(in: ctx.cgContext)
+            }
         }
     }
 

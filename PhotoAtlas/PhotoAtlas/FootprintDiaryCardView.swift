@@ -534,7 +534,7 @@ struct WorldFootprintCardView: View {
             VStack(spacing: 0) {
                 // Header
                 HStack(spacing: 8) {
-                    Image(systemName: "airplane")
+                    Image(systemName: "globe.americas.fill")
                         .font(.system(size: 32, weight: .bold))
                         .foregroundStyle(Color(red: 0.2, green: 0.4, blue: 0.6))
                     Text("My Travel Footprint")

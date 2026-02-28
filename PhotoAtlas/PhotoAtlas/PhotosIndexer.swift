@@ -137,11 +137,14 @@ final class PhotosIndexer {
         return try await index(fetchOptions: nil, onProgress: onProgress)
     }
 
-    /// Incremental index: fetch only assets created/modified since the given date.
+    /// Incremental index: fetch only assets created since the given date.
+    ///
+    /// NOTE: We intentionally do NOT include modificationDate here.
+    /// iCloud Photos can update modificationDate frequently, which would cause re-indexing
+    /// and (critically) repeated reverse-geocoding that triggers Apple throttles.
     func incrementalIndex(since date: Date, onProgress: (@MainActor @Sendable (_ doneGPS: Int, _ totalGPS: Int) -> Void)? = nil) async throws -> IndexResult {
         let opts = PHFetchOptions()
-        // Include edits (location metadata can change) as well as new photos.
-        opts.predicate = NSPredicate(format: "(creationDate > %@) OR (modificationDate > %@)", date as NSDate, date as NSDate)
+        opts.predicate = NSPredicate(format: "creationDate > %@", date as NSDate)
         // Deterministic order (oldest first) so our rate limiter behaves smoothly.
         opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
         return try await index(fetchOptions: opts, onProgress: onProgress)
