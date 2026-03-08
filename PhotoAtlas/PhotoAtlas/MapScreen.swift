@@ -169,9 +169,10 @@ struct MapScreen: View {
 
                 await refreshClusters(region: lastRegion)
 
-                // Focus on the user's current location on every app launch.
-                // We still avoid prompting for Location permission while Photos permission is undecided.
-                if model.authorization != .notDetermined {
+                // Focus on the user's current location on ONLY the very first app launch of the session.
+                if model.authorization != .notDetermined && !didInitialAutoFocus && !userHasManuallyFocused {
+                    // Let the user see the world map briefly before zooming in.
+                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
                     await requestInitialFocusIfNeeded()
                 }
             }
@@ -189,16 +190,19 @@ struct MapScreen: View {
                 didInitialAutoFocus = true
 
                 Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 800_000_000) // 0.8s
                     await requestInitialFocusIfNeeded()
                 }
             }
             .onChange(of: scenePhase) { phase in
-                // `.task` runs once per view lifetime. If the user backgrounds + reopens the app,
-                // we still want to re-focus when becoming active.
+                // We only want the cinematic focus on the very first cold launch.
+                // Subsequent resumes from background should NOT move the map if the user is already looking at something.
                 guard phase == .active else { return }
+                guard !didInitialAutoFocus && !userHasManuallyFocused else { return }
                 guard model.authorization != .notDetermined else { return }
 
                 Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
                     await requestInitialFocusIfNeeded()
                 }
             }
@@ -407,28 +411,49 @@ struct MapScreen: View {
     // MARK: - Initial focus
 
     private func requestInitialFocusIfNeeded() async {
+        guard !didInitialAutoFocus else { return }
+        
         // Ask location permission early; if user denies, fall back.
         // On device, location can occasionally fail on the very first request after launch.
         // Retry once after a short delay before falling back to photos.
-        if await focusMe() { return }
+        if await focusMe(useCinematic: true) { 
+            didInitialAutoFocus = true
+            return 
+        }
 
         try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
-        if await focusMe() { return }
+        if await focusMe(useCinematic: true) { 
+            didInitialAutoFocus = true
+            return 
+        }
 
-        await focusPhotos()
+        await focusPhotos(useCinematic: true)
+        didInitialAutoFocus = true
     }
 
     @discardableResult
-    private func focusMe() async -> Bool {
+    private func focusMe(useCinematic: Bool = false) async -> Bool {
         let loc = await userLocation.requestOneShotLocation()
         if let loc = loc {
             let coord = loc.coordinate
+            
+            if useCinematic {
+                // Perform a two-stage "cinematic" zoom.
+                // Stage 1: Zoom to continental level (span 30)
+                setDesiredRegion(center: coord, span: MKCoordinateSpan(latitudeDelta: 30.0, longitudeDelta: 30.0))
+                
+                // Wait for the first stage of animation to roughly complete
+                try? await Task.sleep(nanoseconds: 1_800_000_000) // 1.8s
+            }
+            
+            // Stage 2: Final zoom (stay local if direct, or finish cinematic)
             setDesiredRegion(center: coord, span: MKCoordinateSpan(latitudeDelta: 2.0, longitudeDelta: 2.0))
+            
             model.lastIndexSummary = String(format: "Focused on you: %.4f, %.4f", coord.latitude, coord.longitude)
             return true
         }
 
-        model.lastIndexSummary = "Couldn’t get your location. On Simulator: Features → Location → choose a location (e.g., Apple)."
+        model.lastIndexSummary = "Couldn’t get your location."
         return false
     }
 
@@ -443,7 +468,6 @@ struct MapScreen: View {
         let accuracy = max(0, loc.horizontalAccuracy)
 
         // Accuracy-based zoom heuristic.
-        // (If accuracy is invalid/negative, treat as low confidence and zoom wider.)
         let delta: Double = {
             if accuracy > 0 && accuracy <= 50 { return 0.08 }      // neighborhood
             if accuracy > 0 && accuracy <= 200 { return 0.18 }     // city
@@ -458,16 +482,25 @@ struct MapScreen: View {
         await refreshClusters(region: lastRegion)
     }
 
-    private func focusPhotos() async {
+    private func focusPhotos(useCinematic: Bool = false) async {
         do {
             if let centroid = try await model.db.photosCentroid() {
+                if useCinematic {
+                    // Perform a two-stage "cinematic" zoom.
+                    // Stage 1: Continental level (span 50)
+                    setDesiredRegion(center: centroid, span: MKCoordinateSpan(latitudeDelta: 50.0, longitudeDelta: 50.0))
+                    
+                    try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5s
+                }
+                
+                // Stage 2: Final photos level (span 20)
                 setDesiredRegion(
                     center: centroid,
                     span: MKCoordinateSpan(latitudeDelta: 20.0, longitudeDelta: 20.0)
                 )
                 model.lastIndexSummary = String(format: "Focused on photos: %.4f, %.4f", centroid.latitude, centroid.longitude)
             } else {
-                model.lastIndexSummary = "No GPS photos indexed yet — can’t Focus Photos. Import photos with location and reopen the app."
+                model.lastIndexSummary = "No GPS photos indexed yet."
             }
         } catch {
             model.lastIndexSummary = "Focus Photos failed: \(error.localizedDescription)"

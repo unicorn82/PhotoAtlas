@@ -36,6 +36,7 @@ struct OfflineMapViewRepresentable: UIViewRepresentable {
 
         if let desiredRegion = desiredRegion {
             // Apply once (MapScreen clears it via callback to avoid repeated animations).
+            // MapKit's animated: true is already smooth; UIView implementation can fight it.
             map.setRegion(desiredRegion, animated: true)
             onAppliedDesiredRegion()
         }

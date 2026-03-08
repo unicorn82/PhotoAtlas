@@ -1,6 +1,6 @@
 name: PhotoAtlas
 options:
-  bundleIdPrefix: com.example
+  bundleIdPrefix: com.adless
   deploymentTarget:
     iOS: "15.2"
 targets:
@@ -15,12 +15,22 @@ targets:
           - GeoIndex.swift
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.PhotoAtlas
+        PRODUCT_BUNDLE_IDENTIFIER: com.adless.photoatlas
         SWIFT_VERSION: "5.0"
     info:
       path: PhotoAtlas/Info.plist
       properties:
-        CFBundleDisplayName: PhotoAtlas
+        CFBundleDisplayName: Photo Atlas Journey
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIRequiresFullScreen: true
         UILaunchScreen: {}
         NSPhotoLibraryUsageDescription: "PhotoAtlas needs access to your photo library to index photo dates and locations and show them on an offline map."
         NSLocationWhenInUseUsageDescription: "Optional: used only to improve your experience; PhotoAtlas primarily reads locations embedded in photos."
