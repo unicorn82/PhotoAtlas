@@ -77,6 +77,9 @@ struct MapScreen: View {
                 // Pin navigation overlay (prev/next)
                 pinNavigator
 
+                // Bottom indexing progress (visible only while automatic indexing is active).
+                indexingProgressOverlay
+
                 deniedOverlay
             }
             .navigationTitle("")
@@ -234,6 +237,36 @@ struct MapScreen: View {
         default:
             EmptyView()
         }
+    }
+
+    private var indexingProgressOverlay: some View {
+        VStack {
+            Spacer()
+
+            if model.isIndexing, let progressText = model.indexProgressText {
+                let percentage = Int((model.indexProgress * 100).rounded())
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Indexing photos… \(percentage)%")
+                        .font(.subheadline.weight(.semibold))
+
+                    ProgressView(value: model.indexProgress)
+
+                    Text(progressText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.regularMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .padding(.horizontal, 12)
+                .padding(.bottom, 14)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: model.isIndexing)
+        .allowsHitTesting(false)
     }
 
     private var pinNavigator: some View {

@@ -114,18 +114,33 @@ final class AppModel: ObservableObject {
 
             let didInitial = defaults.bool(forKey: didInitialIndexKey)
 
+            let onProgress: @MainActor @Sendable (_ doneGPS: Int, _ totalGPS: Int) -> Void = { doneGPS, totalGPS in
+                let safeTotal = max(0, totalGPS)
+                let safeDone = min(max(0, doneGPS), safeTotal)
+
+                if safeTotal > 0 {
+                    self.indexProgress = Double(safeDone) / Double(safeTotal)
+                    self.indexProgressText = "\(safeDone)/\(safeTotal)"
+                    self.lastIndexSummary = "Indexing GPS photos… \(safeDone)/\(safeTotal)"
+                } else {
+                    self.indexProgress = 0
+                    self.indexProgressText = nil
+                    self.lastIndexSummary = "Scanning photos…"
+                }
+            }
+
             let result: IndexResult
             if !didInitial {
-                result = try await indexer.fullReindex()
+                result = try await indexer.fullReindex(onProgress: onProgress)
                 defaults.set(true, forKey: didInitialIndexKey)
                 lastIndexSummary = "Indexed \(result.assetsIndexed) assets (\(result.withLocation) with GPS)."
             } else {
                 if let maxCreationTs = try await db.latestCreationTs() {
                     let since = Date(timeIntervalSince1970: maxCreationTs)
-                    result = try await indexer.incrementalIndex(since: since)
+                    result = try await indexer.incrementalIndex(since: since, onProgress: onProgress)
                     lastIndexSummary = "Indexed \(result.assetsIndexed) new assets (\(result.withLocation) with GPS)."
                 } else {
-                    result = try await indexer.fullReindex()
+                    result = try await indexer.fullReindex(onProgress: onProgress)
                     lastIndexSummary = "Indexed \(result.assetsIndexed) assets (\(result.withLocation) with GPS)."
                 }
             }
