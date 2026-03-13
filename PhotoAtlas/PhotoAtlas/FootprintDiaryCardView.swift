@@ -1,5 +1,7 @@
 import SwiftUI
 import CoreLocation
+import CoreImage
+import CoreImage.CIFilterBuiltins
 
 enum FootprintDiaryCardFormat: String, CaseIterable, Identifiable {
     case portrait
@@ -142,6 +144,62 @@ struct FootprintDiaryCardModel: Identifiable {
     
     /// Layout style
     var layout: FootprintDiaryLayout = .casual
+}
+
+private enum AppStorePromo {
+    static let title = "Photo Atlas"
+    static let urlString = "https://apps.apple.com/app/id6759943743"
+}
+
+private struct AppStoreQRBadge: View {
+    let compact: Bool
+
+    private let context = CIContext()
+    private let filter = CIFilter.qrCodeGenerator()
+
+    var body: some View {
+        HStack(spacing: compact ? 10 : 12) {
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(AppStorePromo.title)
+                    .font(.system(size: compact ? 16 : 18, weight: .black, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.95))
+                Text("Scan to download")
+                    .font(.system(size: compact ? 11 : 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.72))
+            }
+
+            if let qrImage = makeQRImage(from: AppStorePromo.urlString) {
+                Image(uiImage: qrImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .frame(width: compact ? 78 : 88, height: compact ? 78 : 88)
+                    .padding(6)
+                    .background(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.black.opacity(0.35))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(.white.opacity(0.12), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func makeQRImage(from text: String) -> UIImage? {
+        filter.message = Data(text.utf8)
+        filter.correctionLevel = "M"
+
+        guard let output = filter.outputImage else { return nil }
+
+        let scale: CGFloat = 12
+        let transformed = output.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+
+        guard let cgImage = context.createCGImage(transformed, from: transformed.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
 }
 
 /// A shareable, diary-style card.
@@ -507,12 +565,14 @@ struct FootprintDiaryCardView: View {
     }
 
     private var footer: some View {
-        HStack {
-            Spacer()
-            
+        HStack(alignment: .bottom) {
             Text("photoatlas.app")
                 .font(.system(size: 20, weight: .black, design: .rounded))
                 .foregroundStyle(.white.opacity(0.76))
+
+            Spacer()
+
+            AppStoreQRBadge(compact: format == .portrait)
         }
     }
 }
@@ -656,24 +716,32 @@ struct WorldFootprintCardView: View {
 
                     Divider()
 
-                    // Bottom Stats
-                    HStack(spacing: 16) {
-                        Text("Continents:")
-                            .font(.system(size: 18, weight: .bold, design: .serif))
-                            .foregroundStyle(.secondary)
-                        
-                        // Fallback continents if empty
-                        let continents = model.visitedContinents.isEmpty ? ["North America", "Europe", "Asia"] : model.visitedContinents
-                        
-                        ForEach(continents, id: \.self) { cont in
-                            HStack(spacing: 4) {
-                                Image(systemName: continentIcon(cont))
-                                    .foregroundStyle(continentColor(cont))
-                                Text(cont)
-                                    .font(.system(size: 16, weight: .medium, design: .rounded))
-                                    .foregroundStyle(Color.primary.opacity(0.8))
+                    // Bottom Stats + App Store QR
+                    HStack(alignment: .bottom, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Continents:")
+                                .font(.system(size: 18, weight: .bold, design: .serif))
+                                .foregroundStyle(.secondary)
+
+                            // Fallback continents if empty
+                            let continents = model.visitedContinents.isEmpty ? ["North America", "Europe", "Asia"] : model.visitedContinents
+
+                            HStack(spacing: 12) {
+                                ForEach(continents, id: \.self) { cont in
+                                    HStack(spacing: 4) {
+                                        Image(systemName: continentIcon(cont))
+                                            .foregroundStyle(continentColor(cont))
+                                        Text(cont)
+                                            .font(.system(size: 16, weight: .medium, design: .rounded))
+                                            .foregroundStyle(Color.primary.opacity(0.8))
+                                    }
+                                }
                             }
                         }
+
+                        Spacer(minLength: 8)
+
+                        AppStoreQRBadge(compact: false)
                     }
                     .padding(.vertical, 14)
                     .padding(.horizontal, 16)
