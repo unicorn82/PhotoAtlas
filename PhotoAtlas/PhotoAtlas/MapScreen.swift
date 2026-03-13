@@ -243,16 +243,25 @@ struct MapScreen: View {
         VStack {
             Spacer()
 
-            if model.isIndexing, let progressText = model.indexProgressText {
-                let percentage = Int((model.indexProgress * 100).rounded())
+            if model.isIndexing {
+                let percentage = Int((model.indexDisplayProgress * 100).rounded())
+                let progressText = model.indexProgressText
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Indexing photos… \(percentage)%")
-                        .font(.subheadline.weight(.semibold))
+                    if progressText != nil {
+                        Text("Indexing photos… \(percentage)%")
+                            .font(.subheadline.weight(.semibold))
 
-                    ProgressView(value: model.indexProgress)
+                        ProgressView(value: model.indexDisplayProgress)
+                    } else {
+                        Text("Scanning photos…")
+                            .font(.subheadline.weight(.semibold))
 
-                    Text(progressText)
+                        // Show visible progress UI even before we know the GPS total.
+                        ProgressView()
+                    }
+
+                    Text(model.indexIsStalled ? "Still working…" : (progressText ?? "Preparing index…"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

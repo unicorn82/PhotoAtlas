@@ -15,6 +15,10 @@ final class AppModel: ObservableObject {
     /// e.g. "123/456" (GPS photos processed / total GPS photos)
     @Published var indexProgressText: String? = nil
 
+    /// Smoothed progress shown in UI for perceived liveness.
+    @Published var indexDisplayProgress: Double = 0
+    @Published var indexIsStalled: Bool = false
+
     // MARK: - Footprint Diary cart (ordered)
 
     /// Ordered list of selected photo asset ids (PHAsset.localIdentifier).
@@ -26,6 +30,9 @@ final class AppModel: ObservableObject {
 
     private let defaults = UserDefaults.standard
     private let didInitialIndexKey = "didInitialPhotoIndex"
+
+    private var progressSmootherTask: Task<Void, Never>?
+    private var lastProgressUpdateAt: Date = .distantPast
 
     init() {
         self.db = SQLiteStore()
@@ -79,6 +86,38 @@ final class AppModel: ObservableObject {
         footprintDiaryCartIds.removeAll()
     }
 
+    private func startProgressSmoother() {
+        progressSmootherTask?.cancel()
+        progressSmootherTask = Task { @MainActor [weak self] in
+            guard let self = self else { return }
+
+            let tickNs: UInt64 = 100_000_000 // 100ms
+            let easing: Double = 0.18
+            let maxBeforeDone: Double = 0.98
+            let stallThreshold: TimeInterval = 1.5
+
+            while !Task.isCancelled {
+                let target = min(self.indexProgress, maxBeforeDone)
+                let delta = target - self.indexDisplayProgress
+
+                if abs(delta) < 0.001 {
+                    self.indexDisplayProgress = target
+                } else {
+                    self.indexDisplayProgress += (delta * easing)
+                }
+
+                self.indexIsStalled = Date().timeIntervalSince(self.lastProgressUpdateAt) > stallThreshold
+
+                try? await Task.sleep(nanoseconds: tickNs)
+            }
+        }
+    }
+
+    private func stopProgressSmoother() {
+        progressSmootherTask?.cancel()
+        progressSmootherTask = nil
+    }
+
     /// Auto-run indexing:
     /// - on app launch
     /// - immediately after the user grants Photos permission
@@ -90,9 +129,16 @@ final class AppModel: ObservableObject {
         // Reset progress for this run.
         isIndexing = true
         indexProgress = 0
+        indexDisplayProgress = 0
         indexProgressText = nil
+        indexIsStalled = false
+        lastProgressUpdateAt = Date()
+        startProgressSmoother()
         defer {
+            stopProgressSmoother()
             isIndexing = false
+            indexDisplayProgress = indexProgress
+            indexIsStalled = false
         }
 
         do {
@@ -117,6 +163,8 @@ final class AppModel: ObservableObject {
             let onProgress: @MainActor @Sendable (_ doneGPS: Int, _ totalGPS: Int) -> Void = { doneGPS, totalGPS in
                 let safeTotal = max(0, totalGPS)
                 let safeDone = min(max(0, doneGPS), safeTotal)
+
+                self.lastProgressUpdateAt = Date()
 
                 if safeTotal > 0 {
                     self.indexProgress = Double(safeDone) / Double(safeTotal)
@@ -144,6 +192,8 @@ final class AppModel: ObservableObject {
                     lastIndexSummary = "Indexed \(result.assetsIndexed) assets (\(result.withLocation) with GPS)."
                 }
             }
+
+            indexProgress = 1
         } catch {
             lastIndexSummary = "Index failed: \(error.localizedDescription)"
         }
