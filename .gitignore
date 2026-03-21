@@ -10,6 +10,11 @@
 # Re-include everything under PhotoAtlas
 !PhotoAtlas/**
 
+# Keep product projects
+!projects/
+!projects/Human-Style-Writing/
+!projects/Human-Style-Writing/**
+
 # macOS
 .DS_Store
 
